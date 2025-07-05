@@ -1,0 +1,7 @@
+Package: ghost
+Version: 1.0
+Section: base
+Priority: optional
+Architecture: all
+Maintainer: morgan miller  morganmilstone983@gmail.com
+Description: Ghost hacking tool for Termux

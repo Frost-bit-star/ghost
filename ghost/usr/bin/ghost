@@ -1,0 +1,117 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# 👻 Ghost Termux Ethical Hacking Assistant
+
+MEMORY_FILE="$HOME/.ghost_memory"
+AI_API="https://api.dreaded.site/api/chatgpt"
+DEVICE_NAME=$(uname -n)
+PS1="\[\033[1;34m\]${DEVICE_NAME}@ghost:\w\$\[\033[0m\] "
+
+# 👻 Clear screen and show Ghost banner centered
+clear
+echo -e "\033[1;35m"
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 60) / 2)) "░██████╗██╗  ██╗ ██████╗ ███████╗████████╗"
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 60) / 2)) "██╔════╝██║  ██║██╔═══██╗██╔════╝╚══██╔══╝"
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 60) / 2)) "██║     ███████║██║   ██║███████╗   ██║   "
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 60) / 2)) "██║     ██╔══██║██║   ██║╚════██║   ██║   "
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 60) / 2)) "╚██████╗██║  ██║╚██████╔╝███████║   ██║   "
+printf "%*s\n" $(((${COLUMNS:-$(tput cols)} + 25) / 2)) "👻 Ghost Termux Assistant"
+echo -e "\033[0m"
+
+# 🔗 Open Youtube on start
+if command -v termux-open-url &>/dev/null; then
+  termux-open-url "https://www.youtube.com/@Mr_termux-r2l"
+fi
+
+# 🌐 Check internet connectivity
+check_internet() {
+  if ping -c 1 google.com &>/dev/null; then
+    echo -e "\033[1;32m[ ONLINE ]\033[0m"
+    return 0
+  else
+    echo -e "\033[1;31m[ OFFLINE ]\033[0m"
+    return 1
+  fi
+}
+
+check_internet
+touch "$MEMORY_FILE"
+
+while true; do
+  echo
+  echo -en "\033[1;34m$DEVICE_NAME@ghost:~# \033[0m"
+  read -r USER_INPUT
+
+  # Exit
+  if [[ "$USER_INPUT" == "exit" ]]; then
+    echo -e "\033[1;31m👻 Ghost signing out...\033[0m"
+    sleep 1
+    echo -e "\033[1;32m🔗 Support Ghost creator by subscribing to Mr Termux YouTube channel.\033[0m"
+    if command -v termux-open-url &>/dev/null; then
+      termux-open-url "https://www.youtube.com/@Mr_termux-r2l"
+    fi
+    exit 0
+  fi
+
+  # Check internet
+  if ! check_internet; then
+    echo -e "\033[1;31m❌ Please connect to the internet to use Ghost AI.\033[0m"
+    continue
+  fi
+
+  echo -e "\033[1;33m🔮 Summoning Ghost AI...\033[0m"
+  echo "You: $USER_INPUT" >> "$MEMORY_FILE"
+
+  # Explain mode
+  if [[ "$USER_INPUT" == explain* ]]; then
+    QUERY="${USER_INPUT#explain }"
+    RESPONSE=$(curl -sG "$AI_API" --data-urlencode "text=Ghost, explain in detail Termux ethical hacking only: $QUERY" | jq -r '.result.prompt')
+
+    if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+      echo "❌ Internal Error: Empty AI response"
+      continue
+    fi
+
+    echo -e "\033[1;32m🧠 Ghost explains:\033[0m"
+    echo -e "\033[1;32m$RESPONSE\033[0m"
+    echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
+    continue
+  fi
+
+  # Command-only mode
+  RAW_RESPONSE=$(curl -sG "$AI_API" --data-urlencode "text=Ghost, ONLY reply with exact bash commands, no explanations, no comments, no quotes, no backticks, no markdown, only commands runnable on Termux. Task: $USER_INPUT" | jq -r '.result.prompt')
+
+  RESPONSE=$(echo "$RAW_RESPONSE" | sed '/^\s*$/d' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+  # Filter out explanations or markdown
+  if echo "$RESPONSE" | grep -Ei 'please|remember|ethical|note|use |command to|you can|after installing|To turn|Explanation|```|["'"'"'`“”]'; then
+    echo -e "\033[1;31m❌ AI response contains explanation or disallowed text. Please rephrase your query.\033[0m"
+    continue
+  fi
+
+  if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+    echo -e "\033[1;31m❌ Internal Error: Empty AI response\033[0m"
+    continue
+  fi
+
+  echo -e "\033[1;32m🧠 Ghost command:\033[0m"
+  echo -e "\033[1;32m$RESPONSE\033[0m"
+  echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
+
+  # Execute
+  echo -en "\033[1;33m⚠️  Execute this command? (y/n): \033[0m"
+  read -r CONFIRM
+
+  if [[ "$CONFIRM" == "y" ]]; then
+    echo "$RESPONSE" | while read -r line; do
+      [[ -z "$line" ]] && continue
+      eval "$line"
+      if [[ $? -ne 0 ]]; then
+        echo "❌ Command execution error on: $line"
+      fi
+    done
+  else
+    echo -e "\033[1;33m⚠️  Command not executed.\033[0m"
+  fi
+
+done
