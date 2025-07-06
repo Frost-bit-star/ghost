@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install dpkg tools
         run: sudo apt-get update && sudo apt-get install -y dpkg-dev gzip
@@ -22,16 +22,22 @@ jobs:
           dpkg-scanpackages debs /dev/null > debs/Packages
           gzip -kf debs/Packages
 
-      - name: Commit Packages index
+      - name: Copy index.html (if exists)
+        run: |
+          if [ -f index.html ]; then
+            cp index.html debs/index.html
+          fi
+
+      - name: Commit Packages index and .deb
         run: |
           git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git add debs/Packages debs/Packages.gz debs/*.deb
+          git add debs/Packages debs/Packages.gz debs/*.deb debs/index.html
           git commit -m "Update Packages index" || echo "No changes to commit"
-          git push
+          git push https://${{ secrets.Ghost }}@github.com/Frost-bit-star/ghost.git HEAD:main
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.Ghost }}
           publish_dir: ./debs
