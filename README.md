@@ -38,8 +38,8 @@
 
 ```bash
 pkg install wget -y && \
-echo "deb [trusted=yes] https://Frost-bit-star.github.io/ghost/ ./" > $PREFIX/etc/apt/sources.list.d/ghost.list && \
-pkg update && pkg install ghost
+wget https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O $PREFIX/bin/ghost && \
+chmod +x $PREFIX/bin/ghost
 ```
 🛠 Usage
 To launch Ghost, simply type:
