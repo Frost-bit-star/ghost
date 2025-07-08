@@ -37,7 +37,7 @@
 **Copy and paste this one-liner in your Termux:**
 
 ```bash
-pkg install wget -y && \
+pkg install wget jq -y && \
 wget https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O $PREFIX/bin/ghost && \
 chmod +x $PREFIX/bin/ghost
 ```
