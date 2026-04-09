@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Ghost Termux Ethical Hacking Assistant - Elite Thick Frame UI
+# Ghost Termux Ethical Hacking Assistant - Elite Red & Cyan UI
 
 MEMORY_FILE="$HOME/.ghost_memory"
 AI_API="https://api.dreaded.site/api/chatgpt"
@@ -8,177 +8,135 @@ DEVICE_NAME=$(uname -n)
 SUPPORT_LINK="https://selar.com/showlove/alchemist"
 
 # Colors
-B="\033[1;34m"
-G="\033[1;32m"
-Y="\033[1;33m"
-R="\033[1;31m"
-W="\033[0m"
+R="\033[1;31m" # Red (Logo & Errors)
+C="\033[1;36m" # Cyan (Frame & UI)
+Y="\033[1;33m" # Yellow (Prompts)
+G="\033[1;32m" # Green (Success)
+W="\033[0m"    # Reset
+BOLD="\033[1m"
 
 # =========================
-# THICK FRAME FUNCTION
+# CENTERED THICK FRAME
 # =========================
 frame_box() {
     local title="$1"
     local content="$2"
-    local width=70  # fixed width for frames to avoid terminal tput issues
+    local width=64
 
     # Top border
-    echo -e "${B}╔$(printf '═%.0s' $(seq 1 $width))╗${W}"
-    # Title
-    printf "${B}║ %-*s ║${W}\n" $width "████ $title ████"
+    echo -e "${C}╔$(printf '═%.0s' $(seq 1 $width))╗${W}"
+    
+    # Centered Title logic
+    local title_str="[ $title ]"
+    local title_len=${#title_str}
+    local t_pad=$(( (width - title_len) / 2 ))
+    printf "${C}║%*s${R}${BOLD}%s${C}%*s║${W}\n" "$t_pad" "" "$title_str" "$((width - t_pad - title_len))" ""
+
     # Separator
-    echo -e "${B}╠$(printf '═%.0s' $(seq 1 $width))╣${W}"
-    # Content lines
+    echo -e "${C}╠$(printf '═%.0s' $(seq 1 $width))╣${W}"
+
+    # Centered Content lines
     while IFS= read -r line; do
-        printf "${B}║ %-*s ║${W}\n" $width "$line"
+        # Strip ANSI for length calc
+        local clean_line=$(echo -e "$line" | sed 's/\x1b\[[0-9;]*m//g')
+        local line_len=${#clean_line}
+        
+        if [ "$line_len" -ge "$width" ]; then
+            printf "${C}║${W} %-$((width-2))s ${C}║${W}\n" "$line"
+        else
+            local c_pad=$(( (width - line_len) / 2 ))
+            printf "${C}║%*s${W}%s%*s${C}║${W}\n" "$c_pad" "" "$line" "$((width - c_pad - line_len))" ""
+        fi
     done <<< "$content"
+
     # Bottom border
-    echo -e "${B}╚$(printf '═%.0s' $(seq 1 $width))╝${W}"
+    echo -e "${C}╚$(printf '═%.0s' $(seq 1 $width))╝${W}"
 }
 
 # =========================
-# HEADER
+# RED LOGO HEADER
 # =========================
-clear
-WIDTH=70
-printf "%*s\n" $(((${WIDTH} + 60) / 2)) "░██████╗██╗  ██╗ ██████╗ ███████╗████████╗"
-printf "%*s\n" $(((${WIDTH} + 60) / 2)) "██╔════╝██║  ██║██╔═══██╗██╔════╝╚══██╔══╝"
-printf "%*s\n" $(((${WIDTH} + 60) / 2)) "██║     ███████║██║   ██║███████╗   ██║   "
-printf "%*s\n" $(((${WIDTH} + 60) / 2)) "██║     ██╔══██║██║   ██║╚════██║   ██║   "
-printf "%*s\n" $(((${WIDTH} + 60) / 2)) "╚██████╗██║  ██║╚██████╔╝███████║   ██║   "
-printf "%*s\n" $(((${WIDTH} + 25) / 2)) "GHOST TERMUX ASSISTANT"
+draw_header() {
+    clear
+    echo -e "${R}${BOLD}"
+    cat << "EOF"
+  ░██████╗ ██╗  ██╗  ██████╗  ███████╗ ████████╗
+ ██╔════╝ ██║  ██║ ██╔═══██╗ ██╔════╝ ╚══██╔══╝
+ ██║  ███╗███████║ ██║   ██║ ███████╗    ██║   
+ ██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║   
+ ╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║   
+  ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝   
+EOF
+    echo -e "           ${W}${BOLD}GHOST TERMUX ASSISTANT${W}"
+    echo
+}
+
+draw_header
 
 # =========================
-# SUPPORT PANEL
-# =========================
-frame_box "SUPPORT" "Heavy usage detected
-Support server & AI:
-Type 'd' or 'donate'
-$SUPPORT_LINK"
-
-# Open YouTube on start (optional)
-if command -v termux-open-url &>/dev/null; then
-    termux-open-url "https://www.youtube.com/@Mr_termux-r2l"
-fi
-
-# =========================
-# INTERNET CHECK
+# INITIAL CHECKS
 # =========================
 check_internet() {
     if ping -c 1 google.com &>/dev/null; then
-        echo "[ ONLINE ]"
+        echo -e "${G}ONLINE SYSTEM READY${W}"
         return 0
     else
-        echo "[ OFFLINE ]"
+        echo -e "${R}OFFLINE - CHECK CONNECTION${W}"
         return 1
     fi
 }
 
+frame_box "SUPPORT" "Heavy usage detected\nType 'd' or 'donate' to support\n$SUPPORT_LINK"
 frame_box "STATUS" "$(check_internet)"
-
 touch "$MEMORY_FILE"
-
-# =========================
-# PROMPT
-# =========================
-prompt() {
-    echo -en "${B}$DEVICE_NAME@ghost:~# ${W}"
-}
-
-# =========================
-# OPEN DONATION
-# =========================
-open_donation() {
-    if command -v termux-open-url &>/dev/null; then
-        termux-open-url "$SUPPORT_LINK"
-    else
-        frame_box "SUPPORT" "$SUPPORT_LINK"
-    fi
-}
 
 # =========================
 # MAIN LOOP
 # =========================
 while true; do
-    echo
-    prompt
+    echo -en "${C}${DEVICE_NAME}${R}@${C}ghost${W}:${Y}~# ${W}"
     read -r USER_INPUT
 
-    # Donation shortcut
+    [[ -z "$USER_INPUT" ]] && continue
+
+    # Navigation
     if [[ "$USER_INPUT" == "d" || "$USER_INPUT" == "donate" ]]; then
-        open_donation
+        termux-open-url "$SUPPORT_LINK" 2>/dev/null || frame_box "LINK" "$SUPPORT_LINK"
         continue
     fi
 
-    # Exit
     if [[ "$USER_INPUT" == "exit" ]]; then
         frame_box "SYSTEM" "SESSION TERMINATED"
-        open_donation
         exit 0
     fi
 
-    # Internet check
-    if ! check_internet >/dev/null; then
-        frame_box "ERROR" "NO INTERNET CONNECTION"
+    if [[ "$USER_INPUT" == "clear" ]]; then
+        draw_header
         continue
     fi
 
     echo "You: $USER_INPUT" >> "$MEMORY_FILE"
+    frame_box "PROCESS" "CONSULTING GHOST AI..."
 
-    frame_box "PROCESS" "SUMMONING GHOST AI..."
-
-    # =========================
-    # EXPLAIN MODE
-    # =========================
+    # AI Interaction
     if [[ "$USER_INPUT" == explain* ]]; then
         QUERY="${USER_INPUT#explain }"
-        RESPONSE=$(curl -sG "$AI_API" \
-            --data-urlencode "text=Ghost, explain in detail Termux ethical hacking only: $QUERY" \
-            | jq -r '.result.prompt')
+        RESPONSE=$(curl -sG "$AI_API" --data-urlencode "text=Ghost, explain: $QUERY" | jq -r '.result.prompt')
+        frame_box "EXPLANATION" "$RESPONSE"
+    else
+        RESPONSE=$(curl -sG "$AI_API" --data-urlencode "text=Ghost, ONLY bash command for: $USER_INPUT" | jq -r '.result.prompt' | sed '/^\s*$/d')
+
         if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-            frame_box "ERROR" "EMPTY AI RESPONSE"
+            frame_box "ERROR" "AI FAILED TO GENERATE COMMAND"
             continue
         fi
-        frame_box "EXPLANATION" "$RESPONSE"
-        echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
-        continue
-    fi
 
-    # =========================
-    # COMMAND MODE
-    # =========================
-    RAW_RESPONSE=$(curl -sG "$AI_API" \
-        --data-urlencode "text=Ghost, ONLY reply with exact bash commands, no explanations, no comments, no quotes, no backticks, no markdown. Task: $USER_INPUT" \
-        | jq -r '.result.prompt')
-
-    RESPONSE=$(echo "$RAW_RESPONSE" | sed '/^\s*$/d' | sed 's/^[ \t]*//;s/[ \t]*$//')
-
-    # Filter bad responses
-    if echo "$RESPONSE" | grep -Ei 'please|remember|note|you can|Explanation|```|["'"'"'`“”]'; then
-        frame_box "ERROR" "INVALID AI RESPONSE"
-        continue
-    fi
-
-    if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-        frame_box "ERROR" "EMPTY AI RESPONSE"
-        continue
-    fi
-
-    frame_box "COMMAND" "$RESPONSE"
-    echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
-
-    # =========================
-    # EXECUTION
-    # =========================
-    echo -en "${Y}EXECUTE? (y/n): ${W}"
-    read -r CONFIRM
-
-    if [[ "$CONFIRM" == "y" ]]; then
-        echo "$RESPONSE" | while read -r line; do
-            [[ -z "$line" ]] && continue
-            eval "$line" || frame_box "ERROR" "FAILED: $line"
-        done
-    else
-        frame_box "INFO" "EXECUTION SKIPPED"
+        frame_box "COMMAND" "$RESPONSE"
+        
+        echo -en "${Y}EXECUTE? (y/n): ${W}"
+        read -r CONFIRM
+        if [[ "$CONFIRM" == "y" ]]; then
+            eval "$RESPONSE"
+        fi
     fi
 done
