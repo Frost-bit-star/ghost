@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Ghost Termux Ethical Hacking Assistant
+# Ghost Termux Ethical Hacking Assistant - Elite Thick Frame UI
 
 MEMORY_FILE="$HOME/.ghost_memory"
 AI_API="https://api.dreaded.site/api/chatgpt"
@@ -15,30 +15,32 @@ R="\033[1;31m"
 W="\033[0m"
 
 # =========================
-# THICK BOX FUNCTION
+# THICK FRAME FUNCTION
 # =========================
-box() {
-  local title="$1"
-  local content="$2"
-  local width=$(tput cols)
+frame_box() {
+    local title="$1"
+    local content="$2"
+    local width=70  # fixed width for frames to avoid terminal tput issues
 
-  echo -e "$B+$(printf '=%.0s' $(seq 1 $((width-2))))+$W"
-  printf "$B| %-*s |$W\n" $((width-4)) "████ $title ████"
-  echo -e "$B+$(printf '=%.0s' $(seq 1 $((width-2))))+$W"
-
-  while IFS= read -r line; do
-    printf "$B| %-*s |$W\n" $((width-4)) "$line"
-  done <<< "$content"
-
-  echo -e "$B+$(printf '=%.0s' $(seq 1 $((width-2))))+$W"
+    # Top border
+    echo -e "${B}╔$(printf '═%.0s' $(seq 1 $width))╗${W}"
+    # Title
+    printf "${B}║ %-*s ║${W}\n" $width "████ $title ████"
+    # Separator
+    echo -e "${B}╠$(printf '═%.0s' $(seq 1 $width))╣${W}"
+    # Content lines
+    while IFS= read -r line; do
+        printf "${B}║ %-*s ║${W}\n" $width "$line"
+    done <<< "$content"
+    # Bottom border
+    echo -e "${B}╚$(printf '═%.0s' $(seq 1 $width))╝${W}"
 }
 
 # =========================
 # HEADER
 # =========================
 clear
-WIDTH=$(tput cols)
-
+WIDTH=70
 printf "%*s\n" $(((${WIDTH} + 60) / 2)) "░██████╗██╗  ██╗ ██████╗ ███████╗████████╗"
 printf "%*s\n" $(((${WIDTH} + 60) / 2)) "██╔════╝██║  ██║██╔═══██╗██╔════╝╚══██╔══╝"
 printf "%*s\n" $(((${WIDTH} + 60) / 2)) "██║     ███████║██║   ██║███████╗   ██║   "
@@ -47,32 +49,32 @@ printf "%*s\n" $(((${WIDTH} + 60) / 2)) "╚██████╗██║  █�
 printf "%*s\n" $(((${WIDTH} + 25) / 2)) "GHOST TERMUX ASSISTANT"
 
 # =========================
-# SUPPORT BOX
+# SUPPORT PANEL
 # =========================
-box "SUPPORT" "Heavy usage detected
+frame_box "SUPPORT" "Heavy usage detected
 Support server & AI:
-Type 'donate' or 'd'
+Type 'd' or 'donate'
 $SUPPORT_LINK"
 
-# Open YouTube (optional)
+# Open YouTube on start (optional)
 if command -v termux-open-url &>/dev/null; then
-  termux-open-url "https://www.youtube.com/@Mr_termux-r2l"
+    termux-open-url "https://www.youtube.com/@Mr_termux-r2l"
 fi
 
 # =========================
 # INTERNET CHECK
 # =========================
 check_internet() {
-  if ping -c 1 google.com &>/dev/null; then
-    echo "[ ONLINE ]"
-    return 0
-  else
-    echo "[ OFFLINE ]"
-    return 1
-  fi
+    if ping -c 1 google.com &>/dev/null; then
+        echo "[ ONLINE ]"
+        return 0
+    else
+        echo "[ OFFLINE ]"
+        return 1
+    fi
 }
 
-box "STATUS" "$(check_internet)"
+frame_box "STATUS" "$(check_internet)"
 
 touch "$MEMORY_FILE"
 
@@ -80,107 +82,103 @@ touch "$MEMORY_FILE"
 # PROMPT
 # =========================
 prompt() {
-  echo -en "${B}$DEVICE_NAME@ghost:~# ${W}"
+    echo -en "${B}$DEVICE_NAME@ghost:~# ${W}"
 }
 
 # =========================
 # OPEN DONATION
 # =========================
 open_donation() {
-  if command -v termux-open-url &>/dev/null; then
-    termux-open-url "$SUPPORT_LINK"
-  else
-    box "SUPPORT" "$SUPPORT_LINK"
-  fi
+    if command -v termux-open-url &>/dev/null; then
+        termux-open-url "$SUPPORT_LINK"
+    else
+        frame_box "SUPPORT" "$SUPPORT_LINK"
+    fi
 }
 
 # =========================
 # MAIN LOOP
 # =========================
 while true; do
-  echo
-  prompt
-  read -r USER_INPUT
+    echo
+    prompt
+    read -r USER_INPUT
 
-  # Donation shortcut
-  if [[ "$USER_INPUT" == "d" || "$USER_INPUT" == "donate" ]]; then
-    open_donation
-    continue
-  fi
-
-  # Exit
-  if [[ "$USER_INPUT" == "exit" ]]; then
-    box "SYSTEM" "SESSION TERMINATED"
-    open_donation
-    exit 0
-  fi
-
-  # Internet check
-  if ! check_internet >/dev/null; then
-    box "ERROR" "NO INTERNET CONNECTION"
-    continue
-  fi
-
-  echo "You: $USER_INPUT" >> "$MEMORY_FILE"
-
-  box "PROCESS" "SUMMONING GHOST AI..."
-
-  # =========================
-  # EXPLAIN MODE
-  # =========================
-  if [[ "$USER_INPUT" == explain* ]]; then
-    QUERY="${USER_INPUT#explain }"
-
-    RESPONSE=$(curl -sG "$AI_API" \
-      --data-urlencode "text=Ghost, explain in detail Termux ethical hacking only: $QUERY" \
-      | jq -r '.result.prompt')
-
-    if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-      box "ERROR" "EMPTY AI RESPONSE"
-      continue
+    # Donation shortcut
+    if [[ "$USER_INPUT" == "d" || "$USER_INPUT" == "donate" ]]; then
+        open_donation
+        continue
     fi
 
-    box "EXPLANATION" "$RESPONSE"
+    # Exit
+    if [[ "$USER_INPUT" == "exit" ]]; then
+        frame_box "SYSTEM" "SESSION TERMINATED"
+        open_donation
+        exit 0
+    fi
+
+    # Internet check
+    if ! check_internet >/dev/null; then
+        frame_box "ERROR" "NO INTERNET CONNECTION"
+        continue
+    fi
+
+    echo "You: $USER_INPUT" >> "$MEMORY_FILE"
+
+    frame_box "PROCESS" "SUMMONING GHOST AI..."
+
+    # =========================
+    # EXPLAIN MODE
+    # =========================
+    if [[ "$USER_INPUT" == explain* ]]; then
+        QUERY="${USER_INPUT#explain }"
+        RESPONSE=$(curl -sG "$AI_API" \
+            --data-urlencode "text=Ghost, explain in detail Termux ethical hacking only: $QUERY" \
+            | jq -r '.result.prompt')
+        if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+            frame_box "ERROR" "EMPTY AI RESPONSE"
+            continue
+        fi
+        frame_box "EXPLANATION" "$RESPONSE"
+        echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
+        continue
+    fi
+
+    # =========================
+    # COMMAND MODE
+    # =========================
+    RAW_RESPONSE=$(curl -sG "$AI_API" \
+        --data-urlencode "text=Ghost, ONLY reply with exact bash commands, no explanations, no comments, no quotes, no backticks, no markdown. Task: $USER_INPUT" \
+        | jq -r '.result.prompt')
+
+    RESPONSE=$(echo "$RAW_RESPONSE" | sed '/^\s*$/d' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    # Filter bad responses
+    if echo "$RESPONSE" | grep -Ei 'please|remember|note|you can|Explanation|```|["'"'"'`“”]'; then
+        frame_box "ERROR" "INVALID AI RESPONSE"
+        continue
+    fi
+
+    if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+        frame_box "ERROR" "EMPTY AI RESPONSE"
+        continue
+    fi
+
+    frame_box "COMMAND" "$RESPONSE"
     echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
-    continue
-  fi
 
-  # =========================
-  # COMMAND MODE
-  # =========================
-  RAW_RESPONSE=$(curl -sG "$AI_API" \
-    --data-urlencode "text=Ghost, ONLY reply with exact bash commands, no explanations, no comments, no quotes, no backticks, no markdown. Task: $USER_INPUT" \
-    | jq -r '.result.prompt')
+    # =========================
+    # EXECUTION
+    # =========================
+    echo -en "${Y}EXECUTE? (y/n): ${W}"
+    read -r CONFIRM
 
-  RESPONSE=$(echo "$RAW_RESPONSE" | sed '/^\s*$/d' | sed 's/^[ \t]*//;s/[ \t]*$//')
-
-  # Filter bad responses
-  if echo "$RESPONSE" | grep -Ei 'please|remember|note|you can|Explanation|```|["'"'"'`“”]'; then
-    box "ERROR" "INVALID AI RESPONSE"
-    continue
-  fi
-
-  if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-    box "ERROR" "EMPTY AI RESPONSE"
-    continue
-  fi
-
-  box "COMMAND" "$RESPONSE"
-  echo "Ghost: $RESPONSE" >> "$MEMORY_FILE"
-
-  # =========================
-  # EXECUTION
-  # =========================
-  echo -en "${Y}EXECUTE? (y/n): ${W}"
-  read -r CONFIRM
-
-  if [[ "$CONFIRM" == "y" ]]; then
-    echo "$RESPONSE" | while read -r line; do
-      [[ -z "$line" ]] && continue
-      eval "$line" || box "ERROR" "FAILED: $line"
-    done
-  else
-    box "INFO" "EXECUTION SKIPPED"
-  fi
-
+    if [[ "$CONFIRM" == "y" ]]; then
+        echo "$RESPONSE" | while read -r line; do
+            [[ -z "$line" ]] && continue
+            eval "$line" || frame_box "ERROR" "FAILED: $line"
+        done
+    else
+        frame_box "INFO" "EXECUTION SKIPPED"
+    fi
 done
