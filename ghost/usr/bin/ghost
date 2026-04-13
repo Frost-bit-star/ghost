@@ -2,7 +2,8 @@
 
 # Ghost Termux Ethical Hacking Assistant - Animated Agent Mode
 MEMORY_FILE="$HOME/.ghost_memory"
-AI_API="https://api.dreaded.site/api/chatgpt"
+AI_API="https://api.giftedtech.co.ke/api/ai/gpt4o"
+API_KEY="gifted"
 DEVICE_NAME=$(uname -n)
 SUPPORT_LINK="https://selar.com/showlove/alchemist"
 YT_LINK="https://www.youtube.com/@Mr_termux-r2l"
@@ -19,7 +20,6 @@ BOLD="\033[1m"
 # ANIMATION FUNCTIONS
 # =========================
 
-# Typewriter effect
 type_effect() {
     local text="$1"
     local delay=${2:-0.02}
@@ -30,13 +30,12 @@ type_effect() {
     echo
 }
 
-# Pulsing Progress Bar
 loading_anim() {
     local pid=$!
     local delay=0.1
     local spinstr='|/-\'
     echo -en "${C}[#] GHOST IS ANALYZING "
-    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+    while [ -d /proc/$pid ]; do
         local temp=${spinstr#?}
         printf " [%c]  " "$spinstr"
         local spinstr=$temp${spinstr%"$temp"}
@@ -69,18 +68,17 @@ frame_box() {
 draw_header() {
     clear
     echo -e "${R}${BOLD}"
-    # Animated Header Fade-in
     header_text=$(cat << "EOF"
-  ░██████╗ ██╗  ██╗  ██████╗  ███████╗ ████████╗
- ██╔════╝ ██║  ██║ ██╔═══██╗ ██╔════╝ ╚══██╔══╝
- ██║  ███╗███████║ ██║   ██║ ███████╗    ██║   
- ██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║   
- ╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║   
-  ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝   
+ ░██████╗ ██╗  ██╗  ██████╗  ███████╗ ████████╗
+██╔════╝ ██║  ██║ ██╔═══██╗ ██╔════╝ ╚══██╔══╝
+██║  ███╗███████║ ██║   ██║ ███████╗    ██║   
+██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║   
+╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║   
+ ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝   
 EOF
 )
     echo "$header_text"
-    type_effect "           ${W}${BOLD}GHOST AGENT v3.0 - ANIMATED SYSTEM${W}" 0.01
+    type_effect "            ${W}${BOLD}GHOST AGENT v3.0 - COMMAND PROTOCOL${W}" 0.01
     echo
 }
 
@@ -116,6 +114,7 @@ while true; do
 
     [[ -z "$USER_INPUT" ]] && continue
 
+    # Donation logic restored
     if [[ "$USER_INPUT" == "d" || "$USER_INPUT" == "donate" ]]; then
         type_effect "${R}[!] Opening Secure Support Link...${W}"
         termux-open-url "$SUPPORT_LINK" 2>/dev/null
@@ -132,11 +131,16 @@ while true; do
         continue
     fi
 
-    # AI Request with Animation
-    ( curl -sG "$AI_API" --data-urlencode "text=Ghost, $USER_INPUT" > .tmp_resp ) &
+    # Silent System Prompt: Enforces Ghost persona and Termux-only commands
+    SYSTEM_PROMPT="Your name is Ghost. You are a Termux Ethical Hacking Assistant. DO NOT mention ChatGPT or AI. Give ONLY the raw Termux/Bash command. No explanations. No stories. No conversational text."
+
+    ( curl -sG "$AI_API" \
+        --data-urlencode "apikey=$API_KEY" \
+        --data-urlencode "q=$SYSTEM_PROMPT User: $USER_INPUT" > .tmp_resp ) &
     loading_anim
     
-    RESPONSE=$(jq -r '.result.prompt' .tmp_resp | sed '/^\s*$/d')
+    # Cleaning the output to ensure it's a runnable command
+    RESPONSE=$(jq -r '.result' .tmp_resp | sed 's/```bash//g; s/```//g; /^\s*$/d')
     rm .tmp_resp
 
     if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
@@ -146,21 +150,16 @@ while true; do
 
     echo -e "${R}${BOLD}Ghost Agent Response:${W}"
     
-    if [[ "$USER_INPUT" == explain* ]]; then
-        type_effect "${W}$RESPONSE${W}" 0.01
-        echo
+    # Command output
+    type_effect "${G}${BOLD}  $RESPONSE${W}" 0.03
+    echo
+    echo -en "${Y}Execute? (y/n): ${W}"
+    read -r CONFIRM
+    if [[ "$CONFIRM" == "y" ]]; then
+        echo -en "${C}[*] RUNNING PROTOCOLS... "
+        eval "$RESPONSE"
+        echo -e "${G}[DONE]${W}\n"
     else
-        # Command Mode
-        type_effect "${G}${BOLD}  $RESPONSE${W}" 0.03
-        echo
-        echo -en "${Y}Execute? (y/n): ${W}"
-        read -r CONFIRM
-        if [[ "$CONFIRM" == "y" ]]; then
-            echo -en "${C}[*] RUNNING PROTOCOLS... "
-            eval "$RESPONSE"
-            echo -e "${G}[DONE]${W}\n"
-        else
-            echo -e "${R}[-] VOIDED.${W}\n"
-        fi
+        echo -e "${R}[-] VOIDED.${W}\n"
     fi
 done
