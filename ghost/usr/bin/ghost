@@ -1,5 +1,3 @@
-#!/data/data/com.termux/files/usr/bin/bash
-
 # Ghost Termux Ethical Hacking Assistant - v4.8 Stable
 # Developer: Frost-bit-star (https://github.com/Frost-bit-star)
 MEMORY_FILE="$HOME/.ghost_memory"
@@ -129,9 +127,63 @@ while true; do
     if [[ "$CONFIRM" == "y" ]]; then
         echo -e "${C}[*] RUNNING PROTOCOLS...${W}"
         echo -e "${DIM}------------------------------------${W}"
-        # Execute and show output directly
-        eval "$RESPONSE"
+
+        # Execute command and capture output + error
+        OUTPUT_FILE=$(mktemp)
+        ERROR_FILE=$(mktemp)
+
+        bash -c "$RESPONSE" >"$OUTPUT_FILE" 2>"$ERROR_FILE"
+        EXIT_CODE=$?
+
         echo -e "${DIM}------------------------------------${W}"
+        cat "$OUTPUT_FILE"
+        cat "$ERROR_FILE"
+        echo -e "${DIM}------------------------------------${W}"
+
+        # If command failed → send error to AI for fix
+        if [[ $EXIT_CODE -ne 0 ]]; then
+            ERROR_MSG=$(cat "$ERROR_FILE")
+
+            echo -e "${Y}[!] Command failed. Asking Ghost AI for fix...${W}"
+
+            FIX_PROMPT="The following Termux bash command failed:
+
+Command:
+$RESPONSE
+
+Error:
+$ERROR_MSG
+
+Return ONLY the correct bash command to fix this issue in Termux. No explanation."
+
+            ( curl -sG "$AI_API" \
+                --data-urlencode "apikey=$API_KEY" \
+                --data-urlencode "q=$FIX_PROMPT" > .tmp_fix ) &
+            loading_anim
+
+            FIX_CMD=$(jq -r '.result' .tmp_fix | sed $'s/\x1b\[[0-9;]*m//g' | sed 's/```bash//g; s/```//g' | head -n 1)
+            rm .tmp_fix
+
+            if [[ -n "$FIX_CMD" && "$FIX_CMD" != "null" ]]; then
+                echo -e "${P}${BOLD}Ghost Fix Suggestion:${W}"
+                echo -e "${G}  $FIX_CMD${W}"
+                echo
+                echo -en "${Y}Execute fix? (y/n): ${W}"
+                read -r FIX_CONFIRM
+
+                if [[ "$FIX_CONFIRM" == "y" ]]; then
+                    echo -e "${C}[*] APPLYING FIX...${W}"
+                    bash -c "$FIX_CMD"
+                    echo -e "${G}[FIX APPLIED]${W}"
+                else
+                    echo -e "${R}[-] Fix skipped.${W}"
+                fi
+            else
+                echo -e "${R}[!] No fix generated.${W}"
+            fi
+        fi
+
+        rm -f "$OUTPUT_FILE" "$ERROR_FILE"
         echo -e "${G}[DONE]${W}\n"
     else
         echo -e "${R}[-] VOIDED.${W}\n"
