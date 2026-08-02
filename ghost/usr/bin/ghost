@@ -1,38 +1,109 @@
-# Ghost Termux Ethical Hacking Assistant - v4.8 Stable
+#!/data/data/com.termux/files/usr/bin/bash
+# Ghost - opencode-style multi-agent AI assistant for Termux (PURE BASH)
 # Developer: Frost-bit-star (https://github.com/Frost-bit-star)
+#
+# Backend: connects to a running `opencode serve` server (the exact HTTP API
+# opencode uses). Agents map 1:1 to opencode's real agents:
+#   build, plan (primary) | general, explore (subagent)
+# If the opencode server is unreachable, falls back to any OpenAI-compatible
+# provider configured via /config.
+#
+# Requires only: bash, curl OR wget, jq. No python, no node.
+
+# =========================
+# CONFIGURATION
+# =========================
 MEMORY_FILE="$HOME/.ghost_memory"
-AI_API="https://api.giftedtech.co.ke/api/ai/gpt4o"
-API_KEY="gifted"
+CONFIG_DIR="${GHOST_CONFIG_DIR:-$HOME/.config/ghost}"
+CONFIG_FILE="$CONFIG_DIR/config"
 DEVICE_NAME=$(uname -n)
-SUPPORT_LINK="https://selar.com/showlove/alchemist"
-YT_LINK="https://www.youtube.com/@Mr_termux-r2l"
-WA_LINK="https://whatsapp.com/channel/0029Vb7jaKx3rZZmFfefoD1a"
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+
+# opencode server (default local). Point GHOST_OC_URL at a desktop running
+# `opencode serve` for Termux-over-LAN use.
+OC_URL="${GHOST_OC_URL:-http://127.0.0.1:4096}"
+OC_USER="${GHOST_OC_USER:-}"
+OC_PASS="${GHOST_OC_PASS:-}"
+
+# OpenAI-compatible fallback backend
+AI_API="${GHOST_AI_URL:-}"
+API_KEY="${GHOST_API_KEY:-}"
+MODEL="${GHOST_MODEL:-}"
 
 # Colors
-R="\033[1;31m" 
-C="\033[1;36m" 
-Y="\033[1;33m" 
-G="\033[1;32m" 
+R="\033[1;31m"
+C="\033[1;36m"
+Y="\033[1;33m"
+G="\033[1;32m"
 P="\033[1;35m"
-W="\033[0m"    
+B="\033[1;34m"
+W="\033[0m"
 BOLD="\033[1m"
 DIM="\033[2m"
 
 # =========================
-# CORE FUNCTIONS
+# AGENTS (map to opencode server agents)
+# =========================
+# PRIMARY: build (full access) | plan (read-only)
+# SUBAGENT: general | explore | scout(->general+research prompt)
+PRIMARY_AGENTS=(build plan)
+ACTIVE_AGENT="build"
+
+agent_prompt() {
+    local agent="$1"
+    case "$agent" in
+        build)
+            echo "You are the Build agent of Ghost for Termux. You are an expert in Termux, Linux and ethical hacking (authorized penetration testing only). Reply with ONLY raw bash commands runnable in Termux. NO markdown, NO backticks, NO color codes, NO explanations. Do NOT call any tools or run anything yourself. Chain commands with && or ; when needed. Task:" ;;
+        plan)
+            echo "You are the Plan agent of Ghost for Termux (read-only). NEVER execute anything. Analyse the task and return a numbered step-by-step plan (max 8 steps): which Termux commands would run, in what order, and why. Focus on ethical hacking and Linux operations. Do NOT call any tools. Task:" ;;
+        general)
+            echo "You are the General subagent of Ghost for Termux. Handle complex multi-step Termux tasks. Reply with raw bash commands, one per line, runnable in Termux. NO markdown, NO backticks, NO color codes, NO prose between commands. Do NOT call any tools or run anything yourself. Task:" ;;
+        explore)
+            echo "You are the Explore subagent of Ghost for Termux (read-only recon). Reply with ONLY read-only Termux commands: pkg list, ls, find, cat, ip/ifconfig, netstat/ss, route, nmap scans. NO commands that modify or delete anything. Do NOT call any tools or run anything yourself. Task:" ;;
+        scout)
+            echo "You are the Scout subagent of Ghost for Termux (research). Research tools, CVEs, exploit-db entries, documentation. Reply with a short factual report first, then up to 3 relevant Termux commands (curl/searchsploit/apt) to fetch or verify the info. Do NOT call any tools or run anything yourself. Task:" ;;
+        *)
+            echo "You are an expert Termux and ethical hacking assistant. Reply with ONLY raw bash commands runnable in Termux. NO markdown, NO backticks, NO color codes, NO explanations. Do NOT call any tools. Task:" ;;
+    esac
+}
+
+agent_map() {
+    # ghost agent -> opencode server agent id
+    case "$1" in
+        build|plan|general|explore) echo "$1" ;;
+        scout) echo "general" ;;  # opencode 1.18 has no scout; use general + research prompt
+        *) echo "build" ;;
+    esac
+}
+
+list_agents() {
+    echo -e "${C}┌────────────────── AGENTS ──────────────────┐${W}"
+    echo -e "${C}│${W} ${G}PRIMARY${W} (switch with ${Y}TAB${W})              ${C}│${W}"
+    echo -e "${C}│${W}   ${B}build${W}  full access · install/config/run     ${C}│${W}"
+    echo -e "${C}│${W}   ${B}plan${W}   read-only · numbered plan, no exec   ${C}│${W}"
+    echo -e "${C}│${W} ${G}SUBAGENTS${W} (invoke with ${Y}@name${W})          ${C}│${W}"
+    echo -e "${C}│${W}   ${B}general${W} multi-step tasks                    ${C}│${W}"
+    echo -e "${C}│${W}   ${B}explore${W} read-only recon / exploration       ${C}│${W}"
+    echo -e "${C}│${W}   ${B}scout${W}   research CVEs / docs / exploit-db   ${C}│${W}"
+    echo -e "${C}│${W} ${G}HIDDEN${W} (auto) title · summary · compaction    ${C}│${W}"
+    echo -e "${C}└────────────────────────────────────────────┘${W}"
+}
+
+# =========================
+# CORE UI
 # =========================
 
 type_effect() {
     local text="$1"
     for (( i=0; i<${#text}; i++ )); do
         echo -en "${text:$i:1}"
-        sleep 0.01
+        sleep 0.005
     done
     echo
 }
 
 loading_anim() {
-    local pid=$!
+    local pid=$1
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     echo -en "${P} 📡 GHOST ANALYZING "
     while [ -d /proc/$pid ]; do
@@ -51,141 +122,428 @@ draw_header() {
     cat << "EOF"
  ░██████╗ ██╗  ██╗  ██████╗  ███████╗ ████████╗
 ██╔════╝ ██║  ██║ ██╔═══██╗ ██╔════╝ ╚══██╔══╝
-██║  ███╗███████║ ██║   ██║ ███████╗    ██║   
-██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║   
-╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║   
- ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝   
+██║  ███╗███████║ ██║   ██║ ███████╗    ██║
+██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║
+╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║
+ ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝
 EOF
-    echo -e "${W}${BOLD}    GHOST AGENT v4.8 - STABLE COMMAND PROTOCOL${W}"
-    echo -e "${Y}    Dev: Frost-bit-star | GitHub: @Frost-bit-star${W}"
+    echo -e "${W}${BOLD}    GHOST AGENT v5.0 - MULTI-AGENT PROTOCOL (PURE BASH)${W}"
+    echo -e "${Y}    opencode-style agents · Termux | Dev: Frost-bit-star${W}"
     echo -e "${DIM}    ────────────────────────────────────────────${W}"
 }
 
-show_menu() {
-    echo -e "${C}╔═══════════════════════════════════════════════╗${W}"
-    echo -e "${C}║${W}  ${G}1.${W} UPDATE   ${DIM}→ Sync Core Repository            ${C}║${W}"
-    echo -e "${C}║${W}  ${G}2.${W} JOIN     ${DIM}→ WhatsApp Community              ${C}║${W}"
-    echo -e "${C}║${W}  ${G}3.${W} DONATE   ${DIM}→ Support Alchemist               ${C}║${W}"
-    echo -e "${C}║${W}  ${G}4.${W} EXIT     ${DIM}→ Terminate Session               ${C}║${W}"
-    echo -e "${C}╚═══════════════════════════════════════════════╝${W}"
+show_help() {
+    echo -e "${Y}USAGE${W}"
+    echo -e "  ${G}any text${W}           → route task to the best agent automatically"
+    echo -e "  ${G}@<agent> <task>${W}    → force an agent (general/explore/scout/build/plan)"
+    echo -e "  ${G}TAB${W}               → switch primary agent (build ↔ plan)"
+    echo -e "  ${G}/agents${W}           → list agents"
+    echo -e "  ${G}/agent <name>${W}     → set active agent"
+    echo -e "  ${G}/config${W}           → configure opencode server / provider"
+    echo -e "  ${G}/status${W}           → show backend status"
+    echo -e "  ${G}/help${W}             → this help"
+    echo -e "  ${G}/clear${W}            → redraw screen"
+    echo -e "  ${G}exit${W}              → quit"
+}
+
+check_deps() {
+    local ok=0
+    command -v jq >/dev/null 2>&1 || { echo -e "${R}[!] Missing: jq${W} → pkg install jq"; ok=1; }
+    { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; } || { echo -e "${R}[!] Missing: curl or wget${W} → pkg install curl"; ok=1; }
+    return $ok
+}
+
+# =========================
+# HTTP HELPERS (curl or wget)
+# =========================
+http_get() {  # url -> stdout
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --max-time 20 "$1"
+    else
+        wget -q --timeout=20 -O - "$1"
+    fi
+}
+
+http_post() {  # url data outfile -> 0 on HTTP 200/2xx
+    local url="$1" data="$2" out="$3" code
+    if command -v curl >/dev/null 2>&1; then
+        code=$(curl -s --max-time 150 -o "$out" -w "%{http_code}" \
+            -X POST "$url" -H "Content-Type: application/json" -d "$data")
+    else
+        local tmpout
+        tmpout=$(mktemp)
+        if wget -q --timeout=150 -O "$tmpout" --post-data="$data" --header="Content-Type: application/json" "$url" 2>/dev/null; then
+            code=200
+        else
+            code=000
+        fi
+        cp "$tmpout" "$out"
+        rm -f "$tmpout"
+    fi
+    [[ "$code" == 2* ]]
+}
+
+# =========================
+# OPENCODE SERVER BACKEND
+# =========================
+OC_SESSION=""
+
+oc_alive() {
+    http_get "$OC_URL/global/health" | grep -q healthy
+}
+
+oc_new_session() {
+    local tmp
+    tmp=$(mktemp)
+    OC_SESSION=""
+    if http_post "$OC_URL/session" '{"title":"ghost-termux"}' "$tmp"; then
+        OC_SESSION=$(jq -r '.id // empty' "$tmp")
+    fi
+    rm -f "$tmp"
+    [[ -n "$OC_SESSION" ]]
+}
+
+oc_send() {  # agent, system, task -> stdout (joined text parts)
+    local agent="$1" system="$2" task="$3" tmp
+    tmp=$(mktemp)
+    if [[ -z "$OC_SESSION" ]]; then
+        oc_new_session || return 1
+    fi
+    local body
+    body=$(jq -nc --arg agent "$(agent_map "$agent")" --arg sys "$system" --arg task "$task" \
+        '{agent:$agent, system:$sys, parts:[{type:"text",text:$task}]}')
+    if ! http_post "$OC_URL/session/$OC_SESSION/message" "$body" "$tmp"; then
+        # maybe session died -> retry once with a fresh session
+        rm -f "$tmp"; tmp=$(mktemp)
+        OC_SESSION=""
+        oc_new_session || { rm -f "$tmp"; return 1; }
+        http_post "$OC_URL/session/$OC_SESSION/message" "$body" "$tmp" || { rm -f "$tmp"; return 1; }
+    fi
+    # join text parts, preferring final assistant text
+    jq -r '[.parts[] | select(.type=="text" and .text != null) | .text] | join("\n")' "$tmp" 2>/dev/null
+    rm -f "$tmp"
+}
+
+# =========================
+# FALLBACK OPENAI-COMPATIBLE BACKEND
+# =========================
+oa_query() {  # system, task -> stdout
+    local system="$1" task="$2" tmp body
+    tmp=$(mktemp)
+    body=$(jq -nc --arg model "${MODEL:-gpt-4o}" --arg sys "$system" --arg task "$task" \
+        '{model:$model,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
+    if http_post "$AI_API" "$body" "$tmp"; then
+        jq -r '.choices[0].message.content // .choices[0].text // .response // .result // empty' "$tmp" 2>/dev/null
+    fi
+    rm -f "$tmp"
+}
+
+# =========================
+# BACKEND DISPATCH
+# =========================
+ai_query() {  # agent, system, task -> stdout
+    local agent="$1" system="$2" task="$3"
+    if [[ -n "$OC_URL" ]] && oc_alive; then
+        oc_send "$agent" "$system" "$task"
+    elif [[ -n "$AI_API" ]]; then
+        oa_query "$system" "$task"
+    else
+        echo "__NO_BACKEND__"
+    fi
+}
+
+clean_response() {
+    sed $'s/\x1b\[[0-9;]*m//g' \
+        | sed 's/\\033//g; s/\\u001b//g; s/\[[0-9;]*m//g' \
+        | sed 's/```bash//g; s/```sh//g; s/```//g' \
+        | sed '/^\s*$/d'
+}
+
+# =========================
+# ROUTING
+# =========================
+route_agent() {
+    local text="${1,,}"
+    if echo "$text" | grep -qE "cve|exploit-?db|searchsploit|documentation|how to|research|latest version|exploit"; then
+        echo "scout"
+    elif echo "$text" | grep -qE "find|search|locate|what is installed|list files|explore|recon|scan network|which file|who is connected|open ports"; then
+        echo "explore"
+    elif echo "$text" | grep -qE "plan|strategy|outline|how should|approach|steps"; then
+        echo "plan"
+    else
+        echo "$ACTIVE_AGENT"
+    fi
+}
+
+# =========================
+# EXECUTION
+# =========================
+execute_command() {
+    local cmd="$1"
+    local OUTPUT_FILE ERROR_FILE EXIT_CODE
+    OUTPUT_FILE=$(mktemp)
+    ERROR_FILE=$(mktemp)
+
+    echo -e "${C}[*] RUNNING PROTOCOLS...${W}"
+    echo -e "${DIM}------------------------------------${W}"
+    bash -c "$cmd" >"$OUTPUT_FILE" 2>"$ERROR_FILE"
+    EXIT_CODE=$?
+    echo -e "${DIM}------------------------------------${W}"
+    cat "$OUTPUT_FILE"
+    cat "$ERROR_FILE"
+    echo -e "${DIM}------------------------------------${W}"
+
+    if [[ $EXIT_CODE -ne 0 ]]; then
+        local ERROR_MSG FIX_CMD
+        ERROR_MSG=$(cat "$ERROR_FILE")
+        echo -e "${Y}[!] Command failed. Asking the general agent for a fix...${W}"
+        FIX_CMD=$(ai_query "general" "You are the general agent of Ghost. Given a failed Termux command and its error, return ONLY the corrected bash command that fixes the issue. No markdown, no explanation." "Command: $cmd\n\nError: $ERROR_MSG" | clean_response | head -n 1)
+        if [[ -n "$FIX_CMD" && "$FIX_CMD" != "__NO_BACKEND__" ]]; then
+            echo -e "${P}${BOLD}Ghost Fix Suggestion:${W}"
+            echo -e "${G}  $FIX_CMD${W}"
+            echo
+            echo -en "${Y}Execute fix? (y/n): ${W}"
+            read -r FIX_CONFIRM || FIX_CONFIRM="n"
+            if [[ "$FIX_CONFIRM" == "y" ]]; then
+                echo -e "${C}[*] APPLYING FIX...${W}"
+                bash -c "$FIX_CMD"
+                echo -e "${G}[FIX APPLIED]${W}"
+            else
+                echo -e "${R}[-] Fix skipped.${W}"
+            fi
+        else
+            echo -e "${R}[!] No fix generated.${W}"
+        fi
+    fi
+
+    rm -f "$OUTPUT_FILE" "$ERROR_FILE"
+    echo -e "${G}[DONE]${W}\n"
+}
+
+handle_task() {
+    local agent="$1" task="$2" prompt resp
+    prompt=$(agent_prompt "$agent")
+
+    echo -e "${P}${BOLD}${agent^} agent responding...${W}"
+    ( resp=$(ai_query "$agent" "$prompt" "$task"); echo "$resp" > .ghost_resp ) &
+    loading_anim $!
+    resp=$(clean_response < .ghost_resp)
+    rm -f .ghost_resp
+
+    if [[ -z "$resp" || "$resp" == "__NO_BACKEND__" ]]; then
+        echo -e "${R}[!] No response. Run /status to check your backend, then /config to set one.${W}"
+        return
+    fi
+
+    if [[ "$agent" == "plan" ]]; then
+        echo -e "${G}${resp}${W}"
+        echo
+        echo -en "${Y}Save plan to a file? (y/n): ${W}"
+        read -r SAVE || SAVE="n"
+        if [[ "$SAVE" == "y" ]]; then
+            local plan_file="$HOME/ghost-plan-$(date +%Y%m%d-%H%M%S).txt"
+            echo "$resp" > "$plan_file"
+            echo -e "${G}Saved to $plan_file${W}"
+        fi
+        return
+    fi
+
+    echo -e "${P}${BOLD}${agent^} agent response:${W}"
+    echo -e "${G}  $resp${W}"
+    echo
+    echo -en "${Y}Execute? (y/n): ${W}"
+    read -r CONFIRM || CONFIRM="n"
+    if [[ "$CONFIRM" == "y" ]]; then
+        execute_command "$resp"
+    else
+        echo -e "${R}[-] VOIDED.${W}"
+    fi
+}
+
+# =========================
+# HIDDEN AGENTS (auto)
+# =========================
+title_agent() {
+    local task="$1" t
+    t=$(ai_query "general" "You are the title agent. Return a short title (max 6 words) for this Termux hacking session. No quotes, no markdown." "$task" | clean_response | head -n 1)
+    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" ]] && SESSION_TITLE="$t"
+}
+
+summary_agent() {
+    local t
+    t=$(ai_query "general" "You are the summary agent. Summarize this Ghost session in 2-3 lines." "${SESSION_TITLE:-ghost session} on Termux" | clean_response | head -n 5)
+    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" ]] && echo -e "${C}── Session summary ──${W}\n$t"
+}
+
+compaction_agent() {
+    local lines
+    lines=$(wc -l < "$MEMORY_FILE" 2>/dev/null || echo 0)
+    if [[ $lines -gt 500 ]]; then
+        echo -e "${Y}[*] Compacting long-term memory...${W}"
+        local c
+        c=$(ai_query "general" "You are the compaction agent. Compress this chat memory into the essential context, keeping commands and outcomes. Plain text only." "$(tail -n 300 "$MEMORY_FILE")" | clean_response)
+        [[ -n "$c" && "$c" != "null" && "$c" != "__NO_BACKEND__" ]] && echo "$c" > "$MEMORY_FILE"
+    fi
+}
+
+# =========================
+# SETUP
+# =========================
+setup_config() {
+    echo -e "${Y}── Ghost backend config ──${W}"
+    echo -e "${C}1.${W} opencode server (${G}recommended${W} - run \`opencode serve\` on desktop/PC)"
+    echo -e "${C}2.${W} OpenAI-compatible provider (your own key)"
+    echo -en "${Y}Select [1-2]: ${W}"
+    read -r choice
+    if [[ "$choice" == "2" ]]; then
+        echo -en "${Y}API URL (e.g. https://openrouter.ai/api/v1/chat/completions): ${W}"
+        read -r AI_API
+        echo -en "${Y}API key: ${W}"
+        read -r API_KEY
+        echo -en "${Y}Model (e.g. meta-llama/llama-3.3-70b-instruct:free): ${W}"
+        read -r MODEL
+    else
+        echo -en "${Y}opencode server URL [${OC_URL}]: ${W}"
+        read -r newurl
+        [[ -n "$newurl" ]] && OC_URL="$newurl"
+        echo -en "${Y}Basic-auth user (empty if none): ${W}"
+        read -r OC_USER
+        echo -en "${Y}Basic-auth pass (empty if none): ${W}"
+        read -r OC_PASS
+    fi
+    cat > "$CONFIG_FILE" <<EOF
+OC_URL="$OC_URL"
+OC_USER="$OC_USER"
+OC_PASS="$OC_PASS"
+AI_API="$AI_API"
+API_KEY="$API_KEY"
+MODEL="$MODEL"
+ACTIVE_AGENT="build"
+EOF
+    chmod 600 "$CONFIG_FILE"
+    echo -e "${G}[✓] Saved to $CONFIG_FILE${W}"
 }
 
 # =========================
 # STARTUP
 # =========================
-draw_header
-show_menu
+mkdir -p "$CONFIG_DIR"
+touch "$MEMORY_FILE"
 
-if [[ ! -f "$MEMORY_FILE" ]]; then
-    command -v termux-open-url &>/dev/null && termux-open-url "$YT_LINK" &>/dev/null
-    touch "$MEMORY_FILE"
+check_deps || exit 1
+
+if [[ -f "$CONFIG_FILE" ]]; then
+    set -a; source "$CONFIG_FILE"; set +a
+    [[ -z "${OC_URL:-}" ]] && OC_URL="http://127.0.0.1:4096"
+    [[ -z "${ACTIVE_AGENT:-}" ]] && ACTIVE_AGENT="build"
 fi
 
-echo -e "\n${G}Ghost is listening...${W}"
+draw_header
+list_agents
+
+if oc_alive; then
+    oc_new_session
+    echo -e "${G}✓ Connected to opencode server: ${C}$OC_URL${W}"
+else
+    echo -e "${Y}[!] opencode server not reachable at $OC_URL${W}"
+    if [[ -n "$AI_API" ]]; then
+        echo -e "${G}✓ Will use OpenAI-compatible provider: ${C}$AI_API${W}"
+    else
+        echo -e "${R}[!] No backend configured. Run /config to set one.${W}"
+    fi
+fi
+
+echo -e "${G}Ghost is listening...${W}"
+echo -e "${DIM}Agent: $ACTIVE_AGENT (TAB to switch) | /help${W}"
+echo
+
+SESSION_TITLE="ghost-session"
+FIRST_TASK=1
 
 # =========================
 # MAIN LOOP
 # =========================
 while true; do
-    echo -en "${R}${BOLD}┌──(${C}${DEVICE_NAME}${R})─[${Y}~${R}]\n└─${C}$ ${W}"
-    read -r USER_INPUT
+    echo -en "${R}${BOLD}┌──(${C}${ACTIVE_AGENT}${R}@${C}${DEVICE_NAME}${R})─[${Y}~${R}]\n└─${C}$ ${W}"
+    if ! read -r USER_INPUT; then
+        echo -e "${R}👻 EOF — Ghost signing out...${W}"
+        break
+    fi
 
     [[ -z "$USER_INPUT" ]] && continue
 
+    if [[ "$USER_INPUT" == *$'\t'* ]]; then
+        USER_INPUT="${USER_INPUT%$'\t'}"
+        local_idx=0
+        for i in "${!PRIMARY_AGENTS[@]}"; do
+            [[ "${PRIMARY_AGENTS[$i]}" == "$ACTIVE_AGENT" ]] && local_idx=$(( (i + 1) % ${#PRIMARY_AGENTS[@]} ))
+        done
+        ACTIVE_AGENT="${PRIMARY_AGENTS[$local_idx]}"
+        [[ -f "$CONFIG_FILE" ]] && sed -i "s/^ACTIVE_AGENT=.*/ACTIVE_AGENT=\"$ACTIVE_AGENT\"/" "$CONFIG_FILE"
+        echo -e "${G}[*] Switched to primary agent: ${B}$ACTIVE_AGENT${W}"
+        continue
+    fi
+
     case "${USER_INPUT,,}" in
-        1|update)
-            wget -q https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O $PREFIX/bin/ghost && chmod +x $PREFIX/bin/ghost
-            echo -e "${G}UPDATED. PLEASE RESTART.${W}" && exit 0 ;;
-        2|join)
-            termux-open-url "$WA_LINK" 2>/dev/null && continue ;;
-        3|donate|d)
-            termux-open-url "$SUPPORT_LINK" 2>/dev/null && continue ;;
-        4|exit)
+        exit|quit)
+            summary_agent
+            echo -e "${R}👻 Ghost signing out...${W}"
             exit 0 ;;
-        clear)
-            draw_header && show_menu && continue ;;
+        /help)  show_help ; continue ;;
+        /clear) draw_header ; list_agents ; continue ;;
+        /agents) list_agents ; continue ;;
+        /config)
+            setup_config
+            set -a; source "$CONFIG_FILE"; set +a
+            oc_alive && oc_new_session
+            continue ;;
+        /status)
+            echo -e "${Y}── Ghost Status ──${W}"
+            echo -e "Active agent : ${G}${ACTIVE_AGENT}${W}"
+            if oc_alive; then
+                echo -e "Backend      : ${G}opencode server${W} @ ${C}$OC_URL${W}"
+            elif [[ -n "$AI_API" ]]; then
+                echo -e "Backend      : ${C}$AI_API${W} (${MODEL:-no model})"
+            else
+                echo -e "Backend      : ${R}none — run /config${W}"
+            fi
+            echo -e "Session      : ${C}${OC_SESSION:-none}${W}"
+            echo -e "Memory file  : ${C}${MEMORY_FILE}${W}"
+            continue ;;
+        /agent*)
+            AGENT_NAME=$(echo "$USER_INPUT" | awk '{print $2}')
+            if [[ -n "$AGENT_NAME" && " ${PRIMARY_AGENTS[*]} general explore scout " == *" $AGENT_NAME "* ]]; then
+                ACTIVE_AGENT="$AGENT_NAME"
+                [[ -f "$CONFIG_FILE" ]] && sed -i "s/^ACTIVE_AGENT=.*/ACTIVE_AGENT=\"$AGENT_NAME\"/" "$CONFIG_FILE"
+                echo -e "${G}[*] Active agent set to: ${B}$AGENT_NAME${W}"
+            else
+                echo -e "${R}[-] Unknown agent: $AGENT_NAME${W}"
+            fi
+            continue ;;
+        update)
+            wget -q https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O "$PREFIX/bin/ghost" && chmod +x "$PREFIX/bin/ghost"
+            echo -e "${G}UPDATED. PLEASE RESTART.${W}" && exit 0 ;;
     esac
 
-    SYSTEM_PROMPT="Your name is Ghost. Output ONLY the raw bash command for Termux. NO markdown. NO color codes like \033. NO explanations. Just the command."
+    echo "User: $USER_INPUT" >> "$MEMORY_FILE"
 
-    ( curl -sG "$AI_API" --data-urlencode "apikey=$API_KEY" --data-urlencode "q=$SYSTEM_PROMPT User: $USER_INPUT" > .tmp_resp ) &
-    loading_anim
-    
-    # Cleaning Logic: Aggressively strips ANSI escape codes and markdown
-    RESPONSE=$(jq -r '.result' .tmp_resp | sed $'s/\x1b\[[0-9;]*m//g' | sed 's/\\033//g; s/\\u001b//g; s/\[[0-9;]*m//g; s/```bash//g; s/```//g; /^\s*$/d' | head -n 1)
-    rm .tmp_resp
-
-    if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-        RESPONSE="echo 'No command found. Check connection.'"
+    if [[ $FIRST_TASK -eq 1 ]]; then
+        FIRST_TASK=0
+        title_agent "$USER_INPUT" &
     fi
 
-    echo -e "${P}${BOLD}Ghost Agent Response:${W}"
-    echo -e "${G}  $RESPONSE${W}"
-    echo
-    echo -en "${Y}Execute? (y/n): ${W}"
-    read -r CONFIRM
-    if [[ "$CONFIRM" == "y" ]]; then
-        echo -e "${C}[*] RUNNING PROTOCOLS...${W}"
-        echo -e "${DIM}------------------------------------${W}"
-
-        # Execute command and capture output + error
-        OUTPUT_FILE=$(mktemp)
-        ERROR_FILE=$(mktemp)
-
-        bash -c "$RESPONSE" >"$OUTPUT_FILE" 2>"$ERROR_FILE"
-        EXIT_CODE=$?
-
-        echo -e "${DIM}------------------------------------${W}"
-        cat "$OUTPUT_FILE"
-        cat "$ERROR_FILE"
-        echo -e "${DIM}------------------------------------${W}"
-
-        # If command failed → send error to AI for fix
-        if [[ $EXIT_CODE -ne 0 ]]; then
-            ERROR_MSG=$(cat "$ERROR_FILE")
-
-            echo -e "${Y}[!] Command failed. Asking Ghost AI for fix...${W}"
-
-            FIX_PROMPT="The following Termux bash command failed:
-
-Command:
-$RESPONSE
-
-Error:
-$ERROR_MSG
-
-Return ONLY the correct bash command to fix this issue in Termux. No explanation."
-
-            ( curl -sG "$AI_API" \
-                --data-urlencode "apikey=$API_KEY" \
-                --data-urlencode "q=$FIX_PROMPT" > .tmp_fix ) &
-            loading_anim
-
-            FIX_CMD=$(jq -r '.result' .tmp_fix | sed $'s/\x1b\[[0-9;]*m//g' | sed 's/```bash//g; s/```//g' | head -n 1)
-            rm .tmp_fix
-
-            if [[ -n "$FIX_CMD" && "$FIX_CMD" != "null" ]]; then
-                echo -e "${P}${BOLD}Ghost Fix Suggestion:${W}"
-                echo -e "${G}  $FIX_CMD${W}"
-                echo
-                echo -en "${Y}Execute fix? (y/n): ${W}"
-                read -r FIX_CONFIRM
-
-                if [[ "$FIX_CONFIRM" == "y" ]]; then
-                    echo -e "${C}[*] APPLYING FIX...${W}"
-                    bash -c "$FIX_CMD"
-                    echo -e "${G}[FIX APPLIED]${W}"
-                else
-                    echo -e "${R}[-] Fix skipped.${W}"
-                fi
-            else
-                echo -e "${R}[!] No fix generated.${W}"
-            fi
-        fi
-
-        rm -f "$OUTPUT_FILE" "$ERROR_FILE"
-        echo -e "${G}[DONE]${W}\n"
-    else
-        echo -e "${R}[-] VOIDED.${W}\n"
+    if [[ "$USER_INPUT" =~ ^@([a-z]+)[[:space:]]+(.*)$ ]]; then
+        TARGET_AGENT="${BASH_REMATCH[1]}"
+        TASK="${BASH_REMATCH[2]}"
+        case "$TARGET_AGENT" in
+            general|explore|scout|build|plan)
+                handle_task "$TARGET_AGENT" "$TASK" ;;
+            *)
+                echo -e "${R}[-] Unknown agent '@$TARGET_AGENT'. Try: @general, @explore, @scout${W}" ;;
+        esac
+        continue
     fi
+
+    handle_task "$(route_agent "$USER_INPUT")" "$USER_INPUT"
+    compaction_agent
 done
