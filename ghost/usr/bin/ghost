@@ -29,6 +29,7 @@ OC_PASS="${GHOST_OC_PASS:-}"
 AI_API="${GHOST_AI_URL:-}"
 API_KEY="${GHOST_API_KEY:-}"
 MODEL="${GHOST_MODEL:-}"
+GHOST_PROVIDER="openai"
 
 # Colors
 R="\033[1;31m"
@@ -225,28 +226,67 @@ oc_send() {  # agent, system, task -> stdout (joined text parts)
 }
 
 # =========================
-# FALLBACK OPENAI-COMPATIBLE BACKEND
+# STANDALONE BACKEND (no opencode needed)
+# Works on the phone by itself. Supported providers:
+#   openai  -> POST $AI_API  (OpenAI-compatible chat/completions, Bearer key)
+#   gemini  -> REST generateContent (key in URL)
+#   anthropic -> Messages API (x-api-key)
+#   ollama  -> local http://127.0.0.1:11434/v1/chat/completions (no key)
 # =========================
-oa_query() {  # system, task -> stdout
+provider_query() {  # system, task -> stdout
     local system="$1" task="$2" tmp body
     tmp=$(mktemp)
-    body=$(jq -nc --arg model "${MODEL:-gpt-4o}" --arg sys "$system" --arg task "$task" \
-        '{model:$model,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
-    if http_post "$AI_API" "$body" "$tmp"; then
-        jq -r '.choices[0].message.content // .choices[0].text // .response // .result // empty' "$tmp" 2>/dev/null
-    fi
+    case "${GHOST_PROVIDER:-openai}" in
+        gemini)
+            local full="${AI_API%%:generateContent*}"
+            body=$(jq -nc --arg sys "$system" --arg task "$task" \
+                '{system_instruction:{parts:[{text:$sys}]},contents:[{parts:[{text:$task}]}]}')
+            curl -s "${full}:generateContent?key=${API_KEY}" \
+                -H "Content-Type: application/json" -d "$body" 2>/dev/null > "$tmp" \
+                || wget -q -O "$tmp" --post-data="$body" --header="Content-Type: application/json" \
+                   "${full}:generateContent?key=${API_KEY}" 2>/dev/null
+            jq -r '.candidates[0].content.parts[0].text // empty' "$tmp" 2>/dev/null
+            ;;
+        anthropic)
+            body=$(jq -nc --arg model "${MODEL:-claude-3-5-sonnet}" --arg sys "$system" --arg task "$task" \
+                '{model:$model,max_tokens:2048,system:$sys,messages:[{role:"user",content:$task}]}')
+            curl -s "$AI_API" -H "Content-Type: application/json" \
+                -H "x-api-key: ${API_KEY}" -H "anthropic-version: 2023-06-01" \
+                -d "$body" 2>/dev/null > "$tmp" \
+                || wget -q -O "$tmp" --post-data="$body" --header="Content-Type: application/json" \
+                   --header="x-api-key: ${API_KEY}" --header="anthropic-version: 2023-06-01" \
+                   "$AI_API" 2>/dev/null
+            jq -r '.content[0].text // empty' "$tmp" 2>/dev/null
+            ;;
+        ollama)
+            body=$(jq -nc --arg model "${MODEL:-llama3}" --arg sys "$system" --arg task "$task" \
+                '{model:$model,stream:false,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
+            http_post "$AI_API" "$body" "$tmp"
+            jq -r '.message.content // .choices[0].message.content // empty' "$tmp" 2>/dev/null
+            ;;
+        openai|*)
+            body=$(jq -nc --arg model "${MODEL:-gpt-4o}" --arg sys "$system" --arg task "$task" \
+                '{model:$model,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
+            http_post "$AI_API" "$body" "$tmp"
+            jq -r '.choices[0].message.content // .choices[0].text // .response // .result // empty' "$tmp" 2>/dev/null
+            ;;
+    esac
     rm -f "$tmp"
 }
 
 # =========================
 # BACKEND DISPATCH
 # =========================
+backend_present() {
+    [[ -n "$AI_API" ]] || [[ -n "$OC_URL" ]]
+}
+
 ai_query() {  # agent, system, task -> stdout
     local agent="$1" system="$2" task="$3"
     if [[ -n "$OC_URL" ]] && oc_alive; then
         oc_send "$agent" "$system" "$task"
     elif [[ -n "$AI_API" ]]; then
-        oa_query "$system" "$task"
+        provider_query "$system" "$task"
     else
         echo "__NO_BACKEND__"
     fi
@@ -389,28 +429,69 @@ compaction_agent() {
 # =========================
 # SETUP
 # =========================
+# Standalone presets (work on a phone with NO opencode installed).
+# name|provider|url|model|free?
+setup_presets() {
+    echo -e "${Y}── Pick a provider ──────────────────────────────${W}"
+    echo -e "${C}1.${W} ${G}Gemini${W} (Google)      free tier · key from aistudio.google.com/apikey"
+    echo -e "${C}2.${W} ${G}Groq${W}                free tier · key from console.groq.com/keys"
+    echo -e "${C}3.${W} ${G}OpenRouter${W}          free models · key from openrouter.ai/settings/keys"
+    echo -e "${C}4.${W} ${G}OpenAI${W}              paid · key from platform.openai.com/api-keys"
+    echo -e "${C}5.${W} ${G}Anthropic${W} (Claude)  paid · key from console.anthropic.com/settings/keys"
+    echo -e "${C}6.${W} ${G}DeepSeek${W}            cheap · key from platform.deepseek.com/api_keys"
+    echo -e "${C}7.${W} ${G}Ollama${W} (local)      no key · install ollama on phone/PC"
+    echo -e "${C}8.${W} custom (any OpenAI-compatible URL)"
+    echo -e "${C}9.${W} opencode server (desktop running \`opencode serve\`)"
+    echo -en "${Y}Select [1-9]: ${W}"
+    read -r choice || choice=""
+}
+
 setup_config() {
     echo -e "${Y}── Ghost backend config ──${W}"
-    echo -e "${C}1.${W} opencode server (${G}recommended${W} - run \`opencode serve\` on desktop/PC)"
-    echo -e "${C}2.${W} OpenAI-compatible provider (your own key)"
-    echo -en "${Y}Select [1-2]: ${W}"
-    read -r choice
-    if [[ "$choice" == "2" ]]; then
-        echo -en "${Y}API URL (e.g. https://openrouter.ai/api/v1/chat/completions): ${W}"
-        read -r AI_API
-        echo -en "${Y}API key: ${W}"
-        read -r API_KEY
-        echo -en "${Y}Model (e.g. meta-llama/llama-3.3-70b-instruct:free): ${W}"
-        read -r MODEL
-    else
-        echo -en "${Y}opencode server URL [${OC_URL}]: ${W}"
-        read -r newurl
-        [[ -n "$newurl" ]] && OC_URL="$newurl"
-        echo -en "${Y}Basic-auth user (empty if none): ${W}"
-        read -r OC_USER
-        echo -en "${Y}Basic-auth pass (empty if none): ${W}"
-        read -r OC_PASS
-    fi
+    local choice
+    setup_presets
+    case "$choice" in
+        1) AI_API="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"; GHOST_PROVIDER="gemini"; MODEL="gemini-2.0-flash" ;;
+        2) AI_API="https://api.groq.com/openai/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="llama-3.3-70b-versatile" ;;
+        3) AI_API="https://openrouter.ai/api/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="meta-llama/llama-3.3-70b-instruct:free" ;;
+        4) AI_API="https://api.openai.com/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="gpt-4o" ;;
+        5) AI_API="https://api.anthropic.com/v1/messages"; GHOST_PROVIDER="anthropic"; MODEL="claude-3-5-sonnet" ;;
+        6) AI_API="https://api.deepseek.com/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="deepseek-chat" ;;
+        7) AI_API="http://127.0.0.1:11434/v1/chat/completions"; GHOST_PROVIDER="ollama"; MODEL="llama3"; API_KEY=""; echo -e "${G}[i] No key needed for Ollama.${W}" ;;
+        8)
+            GHOST_PROVIDER="openai"; MODEL=""
+            echo -en "${Y}API URL (e.g. https://.../v1/chat/completions): ${W}"
+            read -r AI_API
+            echo -en "${Y}Model ID: ${W}"
+            read -r MODEL
+            ;;
+        9)
+            echo -en "${Y}opencode server URL [${OC_URL}]: ${W}"
+            read -r newurl
+            [[ -n "$newurl" ]] && OC_URL="$newurl"
+            echo -en "${Y}Basic-auth user (empty if none): ${W}"
+            read -r OC_USER
+            echo -en "${Y}Basic-auth pass (empty if none): ${W}"
+            read -r OC_PASS
+            ;;
+        *)
+            echo -e "${R}Invalid. Defaulting to OpenRouter free.${W}"
+            AI_API="https://openrouter.ai/api/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="meta-llama/llama-3.3-70b-instruct:free"
+            ;;
+    esac
+
+    # Ask for a key unless it's a keyless backend
+    case "$choice" in
+        7) API_KEY="" ;;   # ollama
+        9) : ;;            # opencode server - no key
+        *)
+            if [[ -z "$API_KEY" ]]; then
+                echo -en "${Y}Enter your API key: ${W}"
+                read -r API_KEY
+            fi
+            ;;
+    esac
+
     cat > "$CONFIG_FILE" <<EOF
 OC_URL="$OC_URL"
 OC_USER="$OC_USER"
@@ -418,6 +499,7 @@ OC_PASS="$OC_PASS"
 AI_API="$AI_API"
 API_KEY="$API_KEY"
 MODEL="$MODEL"
+GHOST_PROVIDER="$GHOST_PROVIDER"
 ACTIVE_AGENT="build"
 EOF
     chmod 600 "$CONFIG_FILE"
@@ -434,9 +516,10 @@ check_deps || exit 1
 
 if [[ -f "$CONFIG_FILE" ]]; then
     set -a; source "$CONFIG_FILE"; set +a
-    [[ -z "${OC_URL:-}" ]] && OC_URL="http://127.0.0.1:4096"
-    [[ -z "${ACTIVE_AGENT:-}" ]] && ACTIVE_AGENT="build"
 fi
+[[ -z "${OC_URL:-}" ]] && OC_URL="http://127.0.0.1:4096"
+[[ -z "${GHOST_PROVIDER:-}" ]] && GHOST_PROVIDER="openai"
+[[ -z "${ACTIVE_AGENT:-}" ]] && ACTIVE_AGENT="build"
 
 draw_header
 list_agents
@@ -444,13 +527,12 @@ list_agents
 if oc_alive; then
     oc_new_session
     echo -e "${G}✓ Connected to opencode server: ${C}$OC_URL${W}"
+elif [[ -n "$AI_API" ]]; then
+    echo -e "${G}✓ Standalone provider: ${C}${GHOST_PROVIDER:-openai}${W} @ ${C}$AI_API${W}"
+    [[ -n "$MODEL" ]] && echo -e "${DIM}   model: $MODEL${W}"
 else
-    echo -e "${Y}[!] opencode server not reachable at $OC_URL${W}"
-    if [[ -n "$AI_API" ]]; then
-        echo -e "${G}✓ Will use OpenAI-compatible provider: ${C}$AI_API${W}"
-    else
-        echo -e "${R}[!] No backend configured. Run /config to set one.${W}"
-    fi
+    echo -e "${Y}[!] No backend yet. Set one up now (works with NO opencode installed):${W}"
+    setup_config
 fi
 
 echo -e "${G}Ghost is listening...${W}"
@@ -503,7 +585,7 @@ while true; do
             if oc_alive; then
                 echo -e "Backend      : ${G}opencode server${W} @ ${C}$OC_URL${W}"
             elif [[ -n "$AI_API" ]]; then
-                echo -e "Backend      : ${C}$AI_API${W} (${MODEL:-no model})"
+                echo -e "Backend      : ${C}${GHOST_PROVIDER:-openai}${W} @ ${C}$AI_API${W} (${MODEL:-no model})"
             else
                 echo -e "Backend      : ${R}none — run /config${W}"
             fi

@@ -32,30 +32,30 @@ Ghost was rebuilt to work **like opencode**: a multi-agent assistant for Termux.
 
 ## 🚀 Backend
 
-### Option A (recommended): opencode server
+**No opencode needed.** Ghost works standalone on the phone with any provider key.
+On first run it walks you through picking a provider:
 
-Run this on a desktop/PC:
-
-```bash
-opencode serve --port 4096 --hostname 0.0.0.0
 ```
-
-Then in Termux, set the URL (first run asks, or edit `~/.config/ghost/config`):
-
-```bash
 ghost
-/config   # choose "opencode server", enter http://<PC-IP>:4096
+  └─ Pick a provider: Gemini (free) / Groq (free) / OpenRouter (free models) /
+                      OpenAI / Anthropic / DeepSeek / Ollama (no key) / custom
 ```
 
-Ghost then talks to opencode's real HTTP API (`/session`, `/session/:id/message`)
-using its actual agents and the credentials opencode already has.
+Paste your key once — it's saved to `~/.config/ghost/config` (chmod 600).
+Free tiers: **Gemini, Groq, OpenRouter** all give free keys in minutes.
 
-### Option B: your own OpenAI-compatible provider
+### Optionally: use a desktop running opencode
+
+If a PC on your LAN runs `opencode serve`, Ghost can drive opencode's *real* agents
+(build/plan/general/explore) through its HTTP API:
 
 ```bash
-ghost
-/config   # choose provider, paste API URL + key + model
+opencode serve --port 4096 --hostname 0.0.0.0   # on desktop
+ghost -> /config -> opencode server -> http://<PC-IP>:4096
 ```
+
+Ghost auto-detects the opencode server first, and falls back to your standalone
+provider if it's not reachable.
 
 ---
 
@@ -65,7 +65,7 @@ ghost
 pkg install curl jq -y
 wget https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O $PREFIX/bin/ghost
 chmod +x $PREFIX/bin/ghost
-ghost
+ghost        # first run: pick a provider + paste key
 ```
 
 Or build the deb:
