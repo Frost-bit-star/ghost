@@ -96,11 +96,22 @@ provider if it's not reachable.
 ## 📦 Installation
 
 ```bash
-pkg install curl jq -y
+pkg install curl wget jq -y
+bash install.sh        # downloads, VERIFIES the build, replaces ghost (never fails silently)
+ghost                  # first run: pick a provider + paste key
+```
+
+Or the one-liner (then check it actually took, see below):
+
+```bash
 wget https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O $PREFIX/bin/ghost
 chmod +x $PREFIX/bin/ghost
-ghost        # first run: pick a provider + paste key
 ```
+
+> If updating an existing install seems to do nothing, run `ghost` and check
+> `/status` — the **Version** line proves whether the new build landed.
+> A failed download never reports success: `update` inside the app and
+> `install.sh` both verify the downloaded file before replacing.
 
 Or build the deb:
 
@@ -129,7 +140,9 @@ questions when they need info, and delegate sub-tasks to each other via handoff.
 ### Update
 
 ```bash
-ghost -> type: update     # fetches the latest version and restarts
+ghost -> type: update     # fetches the latest, VERIFIES it, replaces, restarts
+# or: bash install.sh     # same verified installer from the repo root
+# check: ghost -> /status -> Version
 ```
 
 ---

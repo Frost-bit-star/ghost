@@ -18,6 +18,7 @@ CONFIG_DIR="${GHOST_CONFIG_DIR:-$HOME/.config/ghost}"
 CONFIG_FILE="$CONFIG_DIR/config"
 DEVICE_NAME=$(uname -n)
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+GHOST_VERSION="5.1"
 
 # opencode server (default local). Point GHOST_OC_URL at a desktop running
 # `opencode serve` for Termux-over-LAN use.
@@ -161,7 +162,7 @@ draw_header() {
 ╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║
  ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝
 EOF
-    echo -e "${W}${BOLD}    GHOST AGENT v5.0 - TEAM PROTOCOL (PURE BASH)${W}"
+    echo -e "${W}${BOLD}    GHOST AGENT v${GHOST_VERSION} - TEAM PROTOCOL (PURE BASH)${W}"
     echo -e "${Y}    opencode-style agents · Termux | Dev: Frost-bit-star${W}"
     echo -e "${DIM}    ────────────────────────────────────────────${W}"
 }
@@ -1031,6 +1032,40 @@ Execute this plan on Termux. You may delegate sub-tasks (recon, research, planni
 }
 
 # =========================
+# SELF-UPDATE
+# =========================
+# Replaces the installed script and VERIFIES the new build actually landed.
+# Never silently "succeeds" like the old bare `wget -O` did.
+self_update() {
+    local url="https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost"
+    local dest="$PREFIX/bin/ghost"
+    local tmpfile newver
+    tmpfile=$(mktemp)
+    echo -e "${Y}[*] Downloading latest ghost...${W}"
+    if ! wget -q "$url" -O "$tmpfile" 2>/dev/null && ! curl -sfL "$url" -o "$tmpfile" 2>/dev/null; then
+        echo -e "${R}[!] Download failed. raw.githubusercontent.com may be blocked on your network.${W}"
+        rm -f "$tmpfile"
+        echo -e "${Y}    Fallback: pull debs/ghost.deb from the repo and run 'pkg reinstall ./ghost.deb'${W}"
+        return
+    fi
+    if [[ ! -s "$tmpfile" ]] || ! grep -q "TEAM PROTOCOL" "$tmpfile"; then
+        echo -e "${R}[!] Downloaded file is not a valid ghost build. Aborted (nothing changed).${W}"
+        rm -f "$tmpfile"
+        return
+    fi
+    newver=$(grep '^GHOST_VERSION=' "$tmpfile" | head -n 1 | cut -d'"' -f2)
+    [[ -n "$newver" ]] || newver="(new build)"
+    if ! mv -f "$tmpfile" "$dest" 2>/dev/null; then
+        echo -e "${R}[!] Cannot write to $dest (permissions?). Try: pkg reinstall ./ghost.deb${W}"
+        rm -f "$tmpfile"
+        return
+    fi
+    chmod +x "$dest" 2>/dev/null
+    echo -e "${G}[OK] Updated to v${newver}. Please restart (type 'ghost').${W}"
+    exit 0
+}
+
+# =========================
 # STARTUP
 # =========================
 mkdir -p "$CONFIG_DIR"
@@ -1130,6 +1165,7 @@ while true; do
             continue ;;
         /status)
             echo -e "${Y}── Ghost Status ──${W}"
+            echo -e "Version      : ${G}v${GHOST_VERSION}${W}"
             echo -e "Active agent : ${G}${ACTIVE_AGENT}${W}"
             if oc_alive; then
                 echo -e "Backend      : ${G}opencode server${W} @ ${C}$OC_URL${W}"
@@ -1159,8 +1195,8 @@ while true; do
             fi
             continue ;;
         update)
-            wget -q https://raw.githubusercontent.com/Frost-bit-star/ghost/main/ghost/usr/bin/ghost -O "$PREFIX/bin/ghost" && chmod +x "$PREFIX/bin/ghost"
-            echo -e "${G}UPDATED. PLEASE RESTART.${W}" && exit 0 ;;
+            self_update
+            continue ;;  # self_update exits on success; else we loop back
     esac
 
     echo "User: $USER_INPUT" >> "$MEMORY_FILE"

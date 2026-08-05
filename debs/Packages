@@ -3,10 +3,10 @@ Version: 5.0
 Architecture: all
 Maintainer: morgan miller  morganmilstone983@gmail.com
 Filename: ./ghost.deb
-Size: 13954
-MD5sum: e7aabef83ebc30171fe661b3945eec36
-SHA1: 84fb0a718335b1a34cfd5388009263806d86b4a3
-SHA256: 1330486918f879aa83cd2252a1ad34e3eeab0cc34662a1bf0c4b0e7db2648f79
+Size: 14380
+MD5sum: c6e6b7b8c9a2fbea9dae088c6bdf990b
+SHA1: c79b23c37d99590ac03deed899487dd022ad9d21
+SHA256: 8243e71818790e1be9e0ed9fdea7d00fb2e1ad053fbcc3fe25a51bd1b8c6b482
 Section: base
 Priority: optional
 Description: Ghost opencode-style multi-agent AI assistant for Termux (pure bash). Uses build/plan/general/explore agents via a running opencode server or any OpenAI-compatible provider. For ethical hacking and Linux automation.
