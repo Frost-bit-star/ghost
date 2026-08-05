@@ -50,21 +50,53 @@ DIM="\033[2m"
 PRIMARY_AGENTS=(build plan)
 ACTIVE_AGENT="build"
 
+# Shared response protocol every agent must follow.
+agent_protocol() {
+    echo "You are part of the Ghost agent TEAM: build (execute), plan (strategy, read-only), general (utility), explore (recon), scout (research). Teammates can take over for you if you are unavailable. Use HANDOFF to delegate a sub-task to the teammate best suited for it.
+Always start with a REASONING: section (your brief thinking). Then use EXACTLY one of these:
+[ask]  when you need info from the user:
+QUESTION:
+<the question>
+
+OPTIONS:
+1. <possible answer>
+2. <possible answer>
+(OPTIONS is optional; the user will pick a number or type their own answer)
+[act]  when you are ready to run Termux commands: put a line containing ONLY '---', then the raw bash commands, one per line
+[delegate]  when a specialist agent should handle a sub-task for you: a line containing ONLY 'HANDOFF:', the next line the agent name (explore/scout/plan/general), then the sub-task on the lines after. The specialist's result will be returned to you so you can continue.
+[answer]  a plain-text reply with no QUESTION and no '---' line
+No markdown, no backticks, no color codes, no emojis. Do NOT call tools or run anything yourself. Task:"
+}
+
+# Termux-specific environment knowledge (Termux is NOT full Linux).
+termux_context() {
+    echo "TERMUX CONTEXT (CRITICAL - this is NOT full Linux):
+- Termux is a Linux userspace on Android: restricted, no root by default, no systemd.
+- Package manager is 'pkg install <tool>' (or apt). NEVER dnf/yum/pacman/apk. There is NO sudo - operate as the normal user.
+- Root prefix is \$PREFIX (usually /data/data/com.termux/files/usr); home is \$HOME under that tree.
+- Android storage is sandboxed: shared/internal storage is only visible after 'termux-setup-storage', then at ~/storage/shared etc.
+- Many Linux paths do NOT exist or are read-only: /root, /sys, most of /proc, /etc/services, /var/log, systemctl, journalctl.
+- Networking works normally (curl, ssh, ping, nmap via pkg). GUI/desktop and hardware control are not available.
+- Recommend only commands that actually work in this Termux environment."
+}
+
 agent_prompt() {
-    local agent="$1"
+    local agent="$1" p ctx
+    p=$(agent_protocol)
+    ctx=$(termux_context)
     case "$agent" in
         build)
-            echo "You are the Build agent of Ghost for Termux. You are an expert in Termux, Linux and ethical hacking (authorized penetration testing only). Reply with ONLY raw bash commands runnable in Termux. NO markdown, NO backticks, NO color codes, NO explanations. Do NOT call any tools or run anything yourself. Chain commands with && or ; when needed. Task:" ;;
+            echo "You are the Build agent of Ghost for Termux. Expert in Termux, Linux and ethical hacking (authorized penetration testing only). You may ask the user for clarification before acting. $p $ctx" ;;
         plan)
-            echo "You are the Plan agent of Ghost for Termux (read-only). NEVER execute anything. Analyse the task and return a numbered step-by-step plan (max 8 steps): which Termux commands would run, in what order, and why. Focus on ethical hacking and Linux operations. Do NOT call any tools. Task:" ;;
+            echo "You are the Plan agent of Ghost for Termux (read-only). NEVER execute anything. Analyse the task and return a numbered step-by-step plan (max 8 steps): which Termux commands would run, in what order, and why. You may ask for clarification first. $p $ctx" ;;
         general)
-            echo "You are the General subagent of Ghost for Termux. Handle complex multi-step Termux tasks. Reply with raw bash commands, one per line, runnable in Termux. NO markdown, NO backticks, NO color codes, NO prose between commands. Do NOT call any tools or run anything yourself. Task:" ;;
+            echo "You are the General subagent of Ghost for Termux. Handle complex multi-step Termux tasks. You may ask the user for clarification before acting. $p $ctx" ;;
         explore)
-            echo "You are the Explore subagent of Ghost for Termux (read-only recon). Reply with ONLY read-only Termux commands: pkg list, ls, find, cat, ip/ifconfig, netstat/ss, route, nmap scans. NO commands that modify or delete anything. Do NOT call any tools or run anything yourself. Task:" ;;
+            echo "You are the Explore subagent of Ghost for Termux (read-only recon). First reason about what to look for. You may ask what to investigate. Then act with ONLY read-only Termux commands: pkg list, ls, find, cat, ip/ifconfig, netstat/ss, route, nmap scans. $p $ctx" ;;
         scout)
-            echo "You are the Scout subagent of Ghost for Termux (research). Research tools, CVEs, exploit-db entries, documentation. Reply with a short factual report first, then up to 3 relevant Termux commands (curl/searchsploit/apt) to fetch or verify the info. Do NOT call any tools or run anything yourself. Task:" ;;
+            echo "You are the Scout subagent of Ghost for Termux (research). Research tools, CVEs, exploit-db entries, documentation. Reply with a short factual report, then when needed a line with ONLY '---' then up to 3 relevant Termux commands (curl/searchsploit/apt) to fetch or verify the info. $p $ctx" ;;
         *)
-            echo "You are an expert Termux and ethical hacking assistant. Reply with ONLY raw bash commands runnable in Termux. NO markdown, NO backticks, NO color codes, NO explanations. Do NOT call any tools. Task:" ;;
+            echo "You are an expert Termux and ethical hacking assistant. You may ask the user for clarification before acting. $p $ctx" ;;
     esac
 }
 
@@ -78,17 +110,36 @@ agent_map() {
 }
 
 list_agents() {
-    echo -e "${Y}AGENTS:${W} ${G}primary${W}(${Y}TAB${W}): ${B}build${W} · ${B}plan${W}   ${G}sub${W}(${Y}@${W}): ${B}general${W} · ${B}explore${W} · ${B}scout${W}"
+    echo -e "${C}┌────────────────── AGENTS ──────────────────┐${W}"
+    echo -e "${C}│${W} ${G}PRIMARY${W} (switch with ${Y}TAB${W})              ${C}│${W}"
+    echo -e "${C}│${W}   ${B}build${W}  full access · install/config/run     ${C}│${W}"
+    echo -e "${C}│${W}   ${B}plan${W}   read-only · numbered plan, no exec   ${C}│${W}"
+    echo -e "${C}│${W} ${G}SUBAGENTS${W} (invoke with ${Y}@name${W})          ${C}│${W}"
+    echo -e "${C}│${W}   ${B}general${W} multi-step tasks                    ${C}│${W}"
+    echo -e "${C}│${W}   ${B}explore${W} read-only recon / exploration       ${C}│${W}"
+    echo -e "${C}│${W}   ${B}scout${W}   research CVEs / docs / exploit-db   ${C}│${W}"
+    echo -e "${C}│${W} ${G}HIDDEN${W} (auto) title · summary · compaction    ${C}│${W}"
+    echo -e "${C}│${W} ${G}TEAM${W}   /team · handoff · auto-failover      ${C}│${W}"
+    echo -e "${C}└────────────────────────────────────────────┘${W}"
 }
 
 # =========================
 # CORE UI
 # =========================
 
+type_effect() {
+    local text="$1"
+    for (( i=0; i<${#text}; i++ )); do
+        echo -en "${text:$i:1}"
+        sleep 0.005
+    done
+    echo
+}
+
 loading_anim() {
     local pid=$1
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    echo -en "${P} 📡 GHOST ANALYZING "
+    echo -en "${P} GHOST ANALYZING "
     while [ -d /proc/$pid ]; do
         local temp=${spinstr#?}
         printf " %c " "$spinstr"
@@ -101,14 +152,27 @@ loading_anim() {
 
 draw_header() {
     clear
-    echo -e "${C}${BOLD}👻 GHOST v5.0${W}  ${DIM}multi-agent protocol · Termux · ${Y}opencode-style${W}"
-    echo -e "${DIM}─────────────────────────────────────────────${W}"
+    echo -e "${C}${BOLD}"
+    cat << "EOF"
+ ░██████╗ ██╗  ██╗  ██████╗  ███████╗ ████████╗
+██╔════╝ ██║  ██║ ██╔═══██╗ ██╔════╝ ╚══██╔══╝
+██║  ███╗███████║ ██║   ██║ ███████╗    ██║
+██║   ██║██╔══██║ ██║   ██║ ╚════██║    ██║
+╚██████╔╝██║  ██║ ╚██████╔╝ ███████║    ██║
+ ╚═════╝ ╚═╝  ╚═╝  ╚═════╝  ╚══════╝    ╚═╝
+EOF
+    echo -e "${W}${BOLD}    GHOST AGENT v5.0 - TEAM PROTOCOL (PURE BASH)${W}"
+    echo -e "${Y}    opencode-style agents · Termux | Dev: Frost-bit-star${W}"
+    echo -e "${DIM}    ────────────────────────────────────────────${W}"
 }
 
 show_help() {
     echo -e "${Y}USAGE${W}"
     echo -e "  ${G}any text${W}           → route task to the best agent automatically"
     echo -e "  ${G}@<agent> <task>${W}    → force an agent (general/explore/scout/build/plan)"
+    echo -e "  ${G}/team <task>${W}       → plan then build · agents help each other, auto-failover"
+    echo -e "  ${G}/assign${W}            → map each agent to a saved provider"
+    echo -e "  ${G}/profiles${W}          → list saved providers + assignments"
     echo -e "  ${G}TAB${W}               → switch primary agent (build ↔ plan)"
     echo -e "  ${G}/agents${W}           → list agents"
     echo -e "  ${G}/agent <name>${W}     → set active agent"
@@ -216,7 +280,7 @@ provider_openai() {  # model, system, task -> stdout
     local model="$1" system="$2" task="$3" tmp body
     tmp=$(mktemp)
     body=$(jq -nc --arg model "$model" --arg sys "$system" --arg task "$task" \
-        '{model:$model,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
+        '{model:$model,max_tokens:2048,messages:[{role:"system",content:$sys},{role:"user",content:$task}]}')
     http_post "$AI_API" "$body" "$tmp" "Authorization: Bearer ${API_KEY}"
     if [[ "$HTTP_CODE" == 2* ]]; then
         jq -r '.choices[0].message.content // .choices[0].text // .response // .result // empty' "$tmp" 2>/dev/null
@@ -278,7 +342,86 @@ backend_present() {
     [[ -n "$AI_API" ]] || [[ -n "$OC_URL" ]]
 }
 
-ai_query() {  # agent, system, task -> stdout
+# If the user assigned this agent to a saved provider profile
+# (~/.config/ghost/agents.conf:  build=openrouter  plan=gemini  ...),
+# return that profile file, else empty.
+agent_provider() {
+    local map="$CONFIG_DIR/agents.conf" prof
+    [[ -f "$map" ]] || return 1
+    prof=$(grep -E "^${1}=" "$map" | tail -n 1 | cut -d= -f2-)
+    [[ -n "$prof" && -f "$CONFIG_DIR/providers/$prof.conf" ]] && echo "$CONFIG_DIR/providers/$prof.conf"
+}
+
+# try_backend: run one query against one source ("global" or a provider
+# profile file). Sets global RESP. Returns 0 only if the backend answered.
+try_backend() {
+    local src="$1" agent="$2" system="$3" task="$4"
+    if [[ "$src" == "global" ]]; then
+        RESP=$(ai_query_core "$agent" "$system" "$task")
+    else
+        RESP=$(query_profile "$src" "$agent" "$system" "$task")
+    fi
+    case "$RESP" in
+        ""|__NO_BACKEND__|__API_ERROR__:*) return 1 ;;
+    esac
+    return 0
+}
+
+# query_profile: run a query using one saved provider profile's credentials,
+# restoring the globals afterwards.
+query_profile() {
+    local profile="$1" agent="$2" system="$3" task="$4" r
+    local orig_api orig_key orig_model orig_provider orig_oc orig_ocuser orig_ocpass
+    orig_api="$AI_API"; orig_key="$API_KEY"; orig_model="$MODEL"
+    orig_provider="$GHOST_PROVIDER"; orig_oc="$OC_URL"
+    orig_ocuser="$OC_USER"; orig_ocpass="$OC_PASS"
+    set -a; source "$profile"; set +a
+    if [[ -n "$AI_API" ]]; then
+        r=$(provider_query "$system" "$task")
+    else
+        r=$(ai_query_core "$agent" "$system" "$task")
+    fi
+    AI_API="$orig_api"; API_KEY="$orig_key"; MODEL="$orig_model"
+    GHOST_PROVIDER="$orig_provider"; OC_URL="$orig_oc"
+    OC_USER="$orig_ocuser"; OC_PASS="$orig_ocpass"
+    echo "$r"
+}
+
+# Team-aware query (ON by default, no /assign needed):
+#   1. the requested agent's own backend (assigned profile, else global)
+#   2. every saved provider profile as a fallback (distinct backends)
+#   3. the global backend last
+# If the agent's backend is down, a teammate takes over automatically and
+# a note goes to stderr so the user knows who answered.
+ai_query() {  # agent, system, task -> stdout (failover across the team)
+    local agent="$1" system="$2" task="$3"
+    local primary_src="global" prof profile
+    prof=$(agent_provider "$agent")
+    [[ -n "$prof" ]] && primary_src="$prof"
+    if try_backend "$primary_src" "$agent" "$system" "$task"; then
+        echo "$RESP"
+        return
+    fi
+    for profile in "$CONFIG_DIR"/providers/*.conf; do
+        [[ -e "$profile" ]] || continue
+        [[ "$profile" == "$primary_src" ]] && continue
+        if try_backend "$profile" "$agent" "$system" "$task"; then
+            echo -e "${DIM}[failover: ${agent} is down → $(basename "$profile" .conf) took over]${W}" >&2
+            echo "$RESP"
+            return
+        fi
+    done
+    if [[ "$primary_src" != "global" ]]; then
+        if try_backend "global" "$agent" "$system" "$task"; then
+            echo -e "${DIM}[failover: ${agent} is down → default backend took over]${W}" >&2
+            echo "$RESP"
+            return
+        fi
+    fi
+    echo "$RESP"
+}
+
+ai_query_core() {  # actual query using the active global backend
     local agent="$1" system="$2" task="$3"
     if [[ -n "$OC_URL" ]] && oc_alive; then
         oc_send "$agent" "$system" "$task"
@@ -294,6 +437,43 @@ clean_response() {
         | sed 's/\\033//g; s/\\u001b//g; s/\[[0-9;]*m//g' \
         | sed 's/```bash//g; s/```sh//g; s/```//g' \
         | sed '/^\s*$/d'
+}
+
+# Parse an agent reply into reasoning / question / options / commands / handoff / plain text.
+# Sets: resp_reasoning resp_question resp_options resp_commands resp_handoff_agent resp_handoff_task resp_text
+parse_resp() {
+    local resp handoff
+    resp=$(cat)
+    local tagstrip="sed -E '/^[[:space:]]*\\[(act|ask|answer|delegate)\\][[:space:]]*$/d'"
+    resp_reasoning=""; resp_question=""; resp_options=""; resp_commands=""; resp_text=""
+    resp_handoff_agent=""; resp_handoff_task=""
+    resp_reasoning=$(printf '%s\n' "$resp" | awk '
+        /^REASONING:/{ sub(/^REASONING:[[:space:]]*/,""); if ($0!="") print; s=1; next }
+        /^(QUESTION:|OPTIONS:|---|HANDOFF:)/{ s=0 }
+        s' | sed '/^\s*$/d' | eval "$tagstrip")
+    resp_question=$(printf '%s\n' "$resp" | awk '
+        /^QUESTION:/{ sub(/^QUESTION:[[:space:]]*/,""); if ($0!="") print; s=1; next }
+        /^(OPTIONS:|REASONING:|---|HANDOFF:)/{ s=0 }
+        s' | sed '/^\s*$/d' | eval "$tagstrip")
+    resp_options=$(printf '%s\n' "$resp" | awk '
+        /^OPTIONS:/{ sub(/^OPTIONS:[[:space:]]*/,""); if ($0!="") print; s=1; next }
+        /^(QUESTION:|REASONING:|---|HANDOFF:)/{ s=0 }
+        s' | sed -E 's/^[[:space:]]*[0-9]+[.)][[:space:]]*//' | sed '/^\s*$/d')
+    handoff=$(printf '%s\n' "$resp" | awk '
+        /^HANDOFF:/{ rest=$0; sub(/^HANDOFF:[[:space:]]*/,"",rest); if (rest!="") print rest; s=1; next }
+        /^(QUESTION:|OPTIONS:|REASONING:|---)/{ s=0 }
+        s')
+    resp_handoff_agent=$(printf '%s\n' "$handoff" | sed -n '1p' | tr -d '[:space:]')
+    resp_handoff_task=$(printf '%s\n' "$handoff" | sed '1d' | sed '/^\s*$/d')
+    if printf '%s\n' "$resp" | grep -q '^---$'; then
+        resp_commands=$(printf '%s\n' "$resp" | sed -n '/^---$/,/^HANDOFF:/p' | sed '1d' | sed '/^\s*$/d')
+        if [[ -z "$resp_reasoning" ]]; then
+            resp_reasoning=$(printf '%s\n' "$resp" | sed -n '1,/^---$/p' | sed '$d' | sed '/^\s*$/d' | eval "$tagstrip")
+        fi
+    fi
+    if [[ -z "$resp_question" && -z "$resp_options" && -z "$resp_commands" && -z "$resp_reasoning" && -z "$resp_handoff_agent" ]]; then
+        resp_text=$(printf '%s\n' "$resp" | sed '/^\s*$/d' | eval "$tagstrip")
+    fi
 }
 
 # =========================
@@ -315,9 +495,12 @@ route_agent() {
 # =========================
 # EXECUTION
 # =========================
+# Runs a command, sends the real Termux output back to the AI, and loops:
+# the AI reads the output, thinks, and proposes the next command (or DONE,
+# or asks a question). The user's job is just y/n or a short reply.
 execute_command() {
     local cmd="$1"
-    local OUTPUT_FILE ERROR_FILE EXIT_CODE
+    local OUTPUT_FILE ERROR_FILE EXIT_CODE output review review_cmds review_reasoning loopn transcript cont
     OUTPUT_FILE=$(mktemp)
     ERROR_FILE=$(mktemp)
 
@@ -329,40 +512,109 @@ execute_command() {
     cat "$OUTPUT_FILE"
     cat "$ERROR_FILE"
     echo -e "${DIM}------------------------------------${W}"
+    output=$(cat "$OUTPUT_FILE"; printf '\n'; cat "$ERROR_FILE")
+    transcript="Command:\n$cmd\n\nExit code: $EXIT_CODE\n\nOutput:\n$output"
 
-    if [[ $EXIT_CODE -ne 0 ]]; then
-        local ERROR_MSG FIX_CMD
-        ERROR_MSG=$(cat "$ERROR_FILE")
-        echo -e "${Y}[!] Command failed. Asking the general agent for a fix...${W}"
-        FIX_CMD=$(ai_query "general" "You are the general agent of Ghost. Given a failed Termux command and its error, return ONLY the corrected bash command that fixes the issue. No markdown, no explanation." "Command: $cmd\n\nError: $ERROR_MSG" | clean_response | head -n 1)
-        if [[ -n "$FIX_CMD" && "$FIX_CMD" != "__NO_BACKEND__" ]]; then
-            echo -e "${P}${BOLD}Ghost Fix Suggestion:${W}"
-            echo -e "${G}  $FIX_CMD${W}"
-            echo
-            echo -en "${Y}Execute fix? (y/n): ${W}"
-            read -r FIX_CONFIRM || FIX_CONFIRM="n"
-            if [[ "$FIX_CONFIRM" == "y" ]]; then
-                echo -e "${C}[*] APPLYING FIX...${W}"
-                bash -c "$FIX_CMD"
-                echo -e "${G}[FIX APPLIED]${W}"
-            else
-                echo -e "${R}[-] Fix skipped.${W}"
-            fi
-        else
-            echo -e "${R}[!] No fix generated.${W}"
+    # AI review loop: keep fixing until the AI says DONE or the user says n
+    loopn=0
+    while [[ $loopn -lt 6 ]]; do
+        loopn=$(( loopn + 1 ))
+        review=$(ai_query "general" "You are the review agent of Ghost for Termux. The user just ran this command and pasted the real output. Read it carefully. If the result is wrong, incomplete, or needs the next step: reason briefly, then a line with ONLY '---', then the exact next bash command(s) (no markdown, no backticks). If you need more info from the user, ask in plain text (no '---'). If everything is correct and the task is fully done, reply with ONLY the word DONE. Do NOT repeat commands that already succeeded. $(termux_context)" "$transcript" | clean_response)
+
+        if [[ -z "$review" || "$review" == "__NO_BACKEND__" ]]; then
+            echo -e "${R}[!] No review from AI.${W}"
+            break
         fi
-    fi
+
+        if printf '%s\n' "$review" | grep -q '^---$'; then
+            review_reasoning=$(printf '%s\n' "$review" | sed -n '1,/^---$/p' | sed '$d')
+            review_cmds=$(printf '%s\n' "$review" | sed '1,/^---$/d')
+        else
+            review_reasoning=""
+            review_cmds=""
+        fi
+
+        if [[ -n "$review_cmds" ]]; then
+            if printf '%s\n' "$review_cmds" | grep -qE '^(DONE|done)$'; then
+                echo -e "${G}[+] Task complete per AI.${W}"
+                break
+            fi
+            if [[ -n "$review_reasoning" ]]; then
+                echo -e "${C}${BOLD}Agent analysis:${W}"
+                echo -e "${DIM}$review_reasoning${W}"
+                echo
+            fi
+            echo -e "${P}${BOLD}Next command:${W}"
+            echo -e "${G}  $review_cmds${W}"
+            echo
+            echo -en "${Y}Run? (y/n): ${W}"
+            read -r FIX_CONFIRM || FIX_CONFIRM="n"
+            if [[ "$FIX_CONFIRM" != "y" ]]; then
+                echo -e "${R}[-] VOIDED.${W}"
+                break
+            fi
+            echo -e "${C}[*] RUNNING...${W}"
+            echo -e "${DIM}------------------------------------${W}"
+            bash -c "$review_cmds" >"$OUTPUT_FILE" 2>"$ERROR_FILE"
+            EXIT_CODE=$?
+            echo -e "${DIM}------------------------------------${W}"
+            cat "$OUTPUT_FILE"
+            cat "$ERROR_FILE"
+            echo -e "${DIM}------------------------------------${W}"
+            output=$(cat "$OUTPUT_FILE"; printf '\n'; cat "$ERROR_FILE")
+            cmd="$review_cmds"
+            transcript="Command:\n$cmd\n\nExit code: $EXIT_CODE\n\nOutput:\n$output"
+        else
+            # AI replied in plain text (question/explanation)
+            echo -e "${G}$review${W}"
+            echo
+            echo -en "${Y}Continue? (y/n): ${W}"
+            read -r cont || cont="n"
+            if [[ "$cont" == "y" ]]; then
+                transcript="$transcript\n\nAI: $review\n\nUSER: continue"
+            else
+                break
+            fi
+        fi
+    done
 
     rm -f "$OUTPUT_FILE" "$ERROR_FILE"
     echo -e "${G}[DONE]${W}\n"
 }
 
 handle_task() {
-    local agent="$1" task="$2" prompt resp
+    local agent="$1" task="$2"
+    local prompt resp transcript loopn answer reply i line nopt sub_resp
+    local resp_reasoning resp_question resp_options resp_commands resp_text
+    local resp_handoff_agent resp_handoff_task
     prompt=$(agent_prompt "$agent")
 
+    # plan agent: pure read-only plan, no execution loop
+    if [[ "$agent" == "plan" ]]; then
+        echo -e "${P}${BOLD}Plan agent responding...${W}"
+        ( resp=$(ai_query "plan" "$prompt" "$task"); echo "$resp" > .ghost_resp ) &
+        loading_anim $!
+        resp=$(clean_response < .ghost_resp)
+        rm -f .ghost_resp
+        if [[ -n "$resp" && "$resp" != "__NO_BACKEND__" ]]; then
+            echo -e "${G}${resp}${W}"
+            echo
+            echo -en "${Y}Save plan to a file? (y/n): ${W}"
+            read -r SAVE || SAVE="n"
+            if [[ "$SAVE" == "y" ]]; then
+                local plan_file="$HOME/ghost-plan-$(date +%Y%m%d-%H%M%S).txt"
+                echo "$resp" > "$plan_file"
+                echo -e "${G}Saved to $plan_file${W}"
+            fi
+        else
+            echo -e "${R}[!] No response from plan agent.${W}"
+        fi
+        return
+    fi
+
+    transcript="$task"
     echo -e "${P}${BOLD}${agent^} agent responding...${W}"
-    ( resp=$(ai_query "$agent" "$prompt" "$task"); echo "$resp" > .ghost_resp ) &
+    ( resp=$(ai_query "$agent" "$prompt" "$transcript"); echo "$resp" > .ghost_resp ) &
     loading_anim $!
     resp=$(clean_response < .ghost_resp)
     rm -f .ghost_resp
@@ -377,29 +629,98 @@ handle_task() {
         return
     fi
 
-    if [[ "$agent" == "plan" ]]; then
-        echo -e "${G}${resp}${W}"
-        echo
-        echo -en "${Y}Save plan to a file? (y/n): ${W}"
-        read -r SAVE || SAVE="n"
-        if [[ "$SAVE" == "y" ]]; then
-            local plan_file="$HOME/ghost-plan-$(date +%Y%m%d-%H%M%S).txt"
-            echo "$resp" > "$plan_file"
-            echo -e "${G}Saved to $plan_file${W}"
-        fi
-        return
-    fi
+    # agent loop: the AI reasons, asks (with options) or types, then acts.
+    loopn=0
+    while [[ $loopn -lt 6 ]]; do
+        loopn=$(( loopn + 1 ))
+        parse_resp <<< "$resp"
 
-    echo -e "${P}${BOLD}${agent^} agent response:${W}"
-    echo -e "${G}  $resp${W}"
-    echo
-    echo -en "${Y}Execute? (y/n): ${W}"
-    read -r CONFIRM || CONFIRM="n"
-    if [[ "$CONFIRM" == "y" ]]; then
-        execute_command "$resp"
-    else
-        echo -e "${R}[-] VOIDED.${W}"
-    fi
+        if [[ -n "$resp_reasoning" ]]; then
+            echo -e "${C}${BOLD}${agent^} reasoning:${W}"
+            echo -e "${DIM}$resp_reasoning${W}"
+            echo
+        fi
+
+        # DELEGATION: the agent asked another specialist to help.
+        if [[ -n "$resp_handoff_agent" ]]; then
+            echo -e "${C}${BOLD}${agent^} delegates to ${resp_handoff_agent}:${W}"
+            echo -e "${DIM}$resp_handoff_task${W}"
+            echo
+            echo -e "${P}${BOLD}${resp_handoff_agent^} agent working...${W}"
+            sub_resp=$(ai_query "$resp_handoff_agent" "$(agent_prompt "$resp_handoff_agent")" "$resp_handoff_task" | clean_response)
+            if [[ -z "$sub_resp" || "$sub_resp" == __API_ERROR__:* || "$sub_resp" == __NO_BACKEND__ ]]; then
+                echo -e "${R}[!] ${resp_handoff_agent} agent unavailable: ${sub_resp#__API_ERROR__: }${W}"
+                break
+            fi
+            echo -e "${G}${sub_resp}${W}"
+            echo
+            transcript=$(printf '%s\n\n%s\n\n[delegated to %s]\n%s\n\nContinue your original task, using the delegated result above.' "$transcript" "$resp" "$resp_handoff_agent" "$sub_resp")
+        else
+        if [[ -n "$resp_question" ]]; then
+            echo -e "${P}${BOLD}${agent^} asks:${W}"
+            echo -e "${G}$resp_question${W}"
+            if [[ -n "$resp_options" ]]; then
+                echo
+                echo -e "${Y}Options:${W}"
+                i=1
+                while IFS= read -r line; do
+                    echo -e "${C}${i})${W} ${line}"
+                    i=$(( i + 1 ))
+                done <<< "$resp_options"
+            fi
+            echo
+            echo -en "${Y}Choose a number or type your answer: ${W}"
+            read -r answer || answer=""
+            if [[ "$answer" =~ ^[0-9]+$ ]] && [[ -n "$resp_options" ]]; then
+                nopt=$(printf '%s\n' "$resp_options" | wc -l)
+                if [[ "$answer" -ge 1 ]] && [[ "$answer" -le "$nopt" ]]; then
+                    answer=$(printf '%s\n' "$resp_options" | sed -n "${answer}p")
+                fi
+            fi
+            [[ -z "$answer" ]] && answer="(no answer given)"
+            transcript=$(printf '%s\n\n%s\n\nUSER ANSWER: %s' "$transcript" "$resp" "$answer")
+        else
+            if [[ -n "$resp_commands" ]]; then
+                echo -e "${P}${BOLD}${agent^} commands:${W}"
+                echo -e "${G}  $resp_commands${W}"
+                echo
+                echo -en "${Y}Execute? (y/n): ${W}"
+                read -r CONFIRM || CONFIRM="n"
+                if [[ "$CONFIRM" == "y" ]]; then
+                    execute_command "$resp_commands"
+                else
+                    echo -e "${R}[-] VOIDED.${W}"
+                fi
+                return
+            fi
+            # plain conversational reply
+            echo -e "${G}$resp_text${W}"
+            echo
+            echo -en "${Y}Your reply (Enter to stop): ${W}"
+            read -r reply || reply=""
+            if [[ -z "$reply" ]]; then
+                return
+            fi
+            transcript=$(printf '%s\n\n%s\n\nUSER: %s' "$transcript" "$resp" "$reply")
+        fi
+        fi  # end delegation else
+
+        # ask the agent again with the updated conversation
+        echo -e "${P}${BOLD}${agent^} responding...${W}"
+        ( resp=$(ai_query "$agent" "$prompt" "$transcript"); echo "$resp" > .ghost_resp ) &
+        loading_anim $!
+        resp=$(clean_response < .ghost_resp)
+        rm -f .ghost_resp
+        if [[ "$resp" == __API_ERROR__:* ]]; then
+            echo -e "${R}[!] API error: ${resp#__API_ERROR__: }${W}"
+            return
+        fi
+        if [[ -z "$resp" ]]; then
+            echo -e "${R}[!] No response.${W}"
+            return
+        fi
+    done
+    echo -e "${Y}[*] Stopped after $loopn exchanges.${W}"
 }
 
 # =========================
@@ -408,13 +729,13 @@ handle_task() {
 title_agent() {
     local task="$1" t
     t=$(ai_query "general" "You are the title agent. Return a short title (max 6 words) for this Termux hacking session. No quotes, no markdown." "$task" | clean_response | head -n 1)
-    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" ]] && SESSION_TITLE="$t"
+    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" && "$t" != __API_ERROR__:* ]] && SESSION_TITLE="$t"
 }
 
 summary_agent() {
     local t
     t=$(ai_query "general" "You are the summary agent. Summarize this Ghost session in 2-3 lines." "${SESSION_TITLE:-ghost session} on Termux" | clean_response | head -n 5)
-    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" ]] && echo -e "${C}── Session summary ──${W}\n$t"
+    [[ -n "$t" && "$t" != "null" && "$t" != "__NO_BACKEND__" && "$t" != __API_ERROR__:* ]] && echo -e "${C}── Session summary ──${W}\n$t"
 }
 
 compaction_agent() {
@@ -424,7 +745,7 @@ compaction_agent() {
         echo -e "${Y}[*] Compacting long-term memory...${W}"
         local c
         c=$(ai_query "general" "You are the compaction agent. Compress this chat memory into the essential context, keeping commands and outcomes. Plain text only." "$(tail -n 300 "$MEMORY_FILE")" | clean_response)
-        [[ -n "$c" && "$c" != "null" && "$c" != "__NO_BACKEND__" ]] && echo "$c" > "$MEMORY_FILE"
+        [[ -n "$c" && "$c" != "null" && "$c" != "__NO_BACKEND__" && "$c" != __API_ERROR__:* ]] && echo "$c" > "$MEMORY_FILE"
     fi
 }
 
@@ -432,26 +753,115 @@ compaction_agent() {
 # SETUP
 # =========================
 # Standalone presets (work on a phone with NO opencode installed).
-# name|provider|url|model|free?
+# Every provider you configure is also saved as a profile in
+# ~/.config/ghost/providers/<name>.conf so you can switch anytime.
+
+# Install + start Ollama inside Termux (no key needed, fully local).
+install_ollama() {
+    if command -v ollama >/dev/null 2>&1; then
+        echo -e "${G}[OK] Ollama already installed.${W}"
+    else
+        echo -e "${Y}[*] Installing Ollama (pkg install ollama)...${W}"
+        pkg install -y ollama 2>/dev/null || { echo -e "${Y}[*] Updating package list and retrying...${W}"; pkg update -y && pkg install -y ollama; }
+        if ! command -v ollama >/dev/null 2>&1; then
+            echo -e "${R}[!] Could not install ollama via pkg.${W}"
+            return 1
+        fi
+    fi
+    if ! curl -s http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+        echo -e "${Y}[*] Starting ollama server in background...${W}"
+        nohup ollama serve >/dev/null 2>&1 &
+        sleep 3
+    fi
+    if curl -s http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+        echo -e "${G}[OK] Ollama server running at http://127.0.0.1:11434${W}"
+        return 0
+    fi
+    echo -e "${R}[!] Ollama server not reachable. Start it manually with 'ollama serve'.${W}"
+    return 1
+}
+
+provider_name() {
+    case "$1" in
+        1) echo "gemini";; 2) echo "groq";; 3) echo "openrouter";; 4) echo "openai";;
+        5) echo "anthropic";; 6) echo "deepseek";; 7) echo "ollama";; 8) echo "custom";; 9) echo "opencode";;
+        *) echo "";;
+    esac
+}
+
+write_config() {  # targetfile
+    cat > "$1" <<EOF
+OC_URL="$OC_URL"
+OC_USER="$OC_USER"
+OC_PASS="$OC_PASS"
+AI_API="$AI_API"
+API_KEY="$API_KEY"
+MODEL="$MODEL"
+GHOST_PROVIDER="$GHOST_PROVIDER"
+ACTIVE_AGENT="build"
+EOF
+    chmod 600 "$1" 2>/dev/null
+}
+
 setup_presets() {
     echo -e "${Y}── Pick a provider ──────────────────────────────${W}"
+    if compgen -G "$CONFIG_DIR/providers/*.conf" >/dev/null 2>&1; then
+        echo -e "${C}0.${W} ${B}switch to a saved provider${W}"
+    fi
     echo -e "${C}1.${W} ${G}Gemini${W} (Google)      free tier · key from aistudio.google.com/apikey"
     echo -e "${C}2.${W} ${G}Groq${W}                free tier · key from console.groq.com/keys"
     echo -e "${C}3.${W} ${G}OpenRouter${W}          free models · key from openrouter.ai/settings/keys"
     echo -e "${C}4.${W} ${G}OpenAI${W}              paid · key from platform.openai.com/api-keys"
     echo -e "${C}5.${W} ${G}Anthropic${W} (Claude)  paid · key from console.anthropic.com/settings/keys"
     echo -e "${C}6.${W} ${G}DeepSeek${W}            cheap · key from platform.deepseek.com/api_keys"
-    echo -e "${C}7.${W} ${G}Ollama${W} (local)      no key · install ollama on phone/PC"
+    echo -e "${C}7.${W} ${G}Ollama${W} (local)      no key · auto-install in Termux, runs on-device"
     echo -e "${C}8.${W} custom (any OpenAI-compatible URL)"
     echo -e "${C}9.${W} opencode server (desktop running \`opencode serve\`)"
-    echo -en "${Y}Select [1-9]: ${W}"
+    echo -en "${Y}Select [0-9]: ${W}"
     read -r choice || choice=""
 }
 
 setup_config() {
     echo -e "${Y}── Ghost backend config ──${W}"
-    local choice
+    local choice pname profile_file
+    local profiles=() pf i psel CHK
     setup_presets
+
+    # 0) switch to a previously saved provider
+    if [[ "$choice" == "0" ]]; then
+        i=1
+        for pf in "$CONFIG_DIR"/providers/*.conf; do
+            [[ -e "$pf" ]] || continue
+            profiles+=("$pf")
+            echo -e "${C}${i})${W} ${B}$(basename "$pf" .conf)${W}"
+            i=$(( i + 1 ))
+        done
+        if [[ ${#profiles[@]} -eq 0 ]]; then
+            echo -e "${R}No saved providers yet. Configure one above.${W}"
+            return
+        fi
+        echo -en "${Y}Select [1-${#profiles[@]}]: ${W}"
+        read -r psel || psel=""
+        if [[ "$psel" =~ ^[0-9]+$ ]] && [[ "$psel" -ge 1 ]] && [[ "$psel" -le ${#profiles[@]} ]]; then
+            profile_file="${profiles[$(( psel - 1 ))]}"
+            set -a; source "$profile_file"; set +a
+            write_config "$CONFIG_FILE"
+            echo -e "${G}[OK] Activated provider: $(basename "$profile_file" .conf)${W}"
+        else
+            echo -e "${R}Invalid selection.${W}"
+        fi
+        return
+    fi
+
+    pname=$(provider_name "$choice")
+
+    # preload a previously saved key/model for THIS provider
+    if [[ -n "$pname" ]] && [[ -f "$CONFIG_DIR/providers/$pname.conf" ]]; then
+        set -a; source "$CONFIG_DIR/providers/$pname.conf"; set +a
+    elif [[ -n "$pname" ]] && [[ "$choice" != "7" ]] && [[ "$choice" != "9" ]]; then
+        API_KEY=""
+    fi
+
     case "$choice" in
         1) AI_API="https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"; GHOST_PROVIDER="gemini"; MODEL="gemini-2.0-flash" ;;
         2) AI_API="https://api.groq.com/openai/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="openai/gpt-oss-120b" ;;
@@ -459,7 +869,7 @@ setup_config() {
         4) AI_API="https://api.openai.com/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="gpt-4o" ;;
         5) AI_API="https://api.anthropic.com/v1/messages"; GHOST_PROVIDER="anthropic"; MODEL="claude-3-5-sonnet" ;;
         6) AI_API="https://api.deepseek.com/v1/chat/completions"; GHOST_PROVIDER="openai"; MODEL="deepseek-chat" ;;
-        7) AI_API="http://127.0.0.1:11434/v1/chat/completions"; GHOST_PROVIDER="ollama"; MODEL="llama3"; API_KEY=""; echo -e "${G}[i] No key needed for Ollama.${W}" ;;
+        7) AI_API="http://127.0.0.1:11434/v1/chat/completions"; GHOST_PROVIDER="ollama"; MODEL="llama3.2:1b"; API_KEY=""; echo -e "${G}[i] No key needed for Ollama.${W}" ;;
         8)
             GHOST_PROVIDER="openai"; MODEL=""
             echo -en "${Y}API URL (e.g. https://.../v1/chat/completions): ${W}"
@@ -482,30 +892,142 @@ setup_config() {
             ;;
     esac
 
-    # Ask for a key unless it's a keyless backend
+    # Key handling: always allow keeping or changing the stored key
     case "$choice" in
         7) API_KEY="" ;;   # ollama
         9) : ;;            # opencode server - no key
         *)
-            if [[ -z "$API_KEY" ]]; then
+            if [[ -n "$API_KEY" ]]; then
+                echo -en "${Y}Key on file: ${C}${API_KEY:0:8}...${W}. Change it? (y/n): ${W}"
+                read -r CHK || CHK="n"
+                if [[ "$CHK" == "y" ]]; then
+                    echo -en "${Y}Enter new API key: ${W}"
+                    read -r API_KEY
+                fi
+            else
                 echo -en "${Y}Enter your API key: ${W}"
                 read -r API_KEY
             fi
             ;;
     esac
 
-    cat > "$CONFIG_FILE" <<EOF
-OC_URL="$OC_URL"
-OC_USER="$OC_USER"
-OC_PASS="$OC_PASS"
-AI_API="$AI_API"
-API_KEY="$API_KEY"
-MODEL="$MODEL"
-GHOST_PROVIDER="$GHOST_PROVIDER"
-ACTIVE_AGENT="build"
-EOF
-    chmod 600 "$CONFIG_FILE"
-    echo -e "${G}[✓] Saved to $CONFIG_FILE${W}"
+    write_config "$CONFIG_FILE"
+    if [[ -n "$pname" ]]; then
+        mkdir -p "$CONFIG_DIR/providers"
+        write_config "$CONFIG_DIR/providers/$pname.conf"
+    fi
+    echo -e "${G}[OK] Saved to $CONFIG_FILE${W}"
+
+    # Ollama: install/start it and offer to pull the default model
+    if [[ "$choice" == "7" ]]; then
+        install_ollama
+        if command -v ollama >/dev/null 2>&1; then
+            echo -en "${Y}Pull the default model (${MODEL}, ~1.3GB) now? (y/n): ${W}"
+            read -r PULL || PULL="n"
+            if [[ "$PULL" == "y" ]]; then
+                echo -e "${Y}[*] Downloading ${MODEL}...${W}"
+                ollama pull "$MODEL"
+            fi
+        fi
+    fi
+}
+
+# =========================
+# TEAM (collaboration + failover)
+# =========================
+ALL_AGENTS=(build plan general explore scout)
+
+# Print current agent -> provider assignments.
+show_assignments() {
+    local a cur
+    for a in "${ALL_AGENTS[@]}"; do
+        cur=$(agent_provider "$a")
+        if [[ -n "$cur" ]]; then
+            echo -e "  ${B}$a${W} → ${G}$(basename "$cur" .conf)${W}"
+        else
+            echo -e "  ${B}$a${W} → ${DIM}default (global backend)${W}"
+        fi
+    done
+}
+
+assign_agents() {
+    local a psel pf i
+    if ! compgen -G "$CONFIG_DIR/providers/*.conf" >/dev/null 2>&1; then
+        echo -e "${R}[!] No provider profiles yet. Save some with /config first.${W}"
+        return
+    fi
+    echo -e "${Y}── Assign agents to providers ──${W}"
+    show_assignments
+    echo
+    echo -en "${Y}Agent to assign (build/plan/general/explore/scout) or Enter to keep: ${W}"
+    read -r a || a=""
+    [[ -z "$a" ]] && return
+    if [[ " ${ALL_AGENTS[*]} " != *" $a "* ]]; then
+        echo -e "${R}Unknown agent: $a${W}"
+        return
+    fi
+    echo -e "${Y}Providers:${W}"
+    echo -e "${C}0)${W} default (global backend)"
+    i=1
+    for pf in "$CONFIG_DIR"/providers/*.conf; do
+        [[ -e "$pf" ]] || continue
+        echo -e "${C}${i})${W} ${G}$(basename "$pf" .conf)${W}"
+        i=$(( i + 1 ))
+    done
+    echo -en "${Y}Pick: ${W}"
+    read -r psel || psel=""
+    local map="$CONFIG_DIR/agents.conf"
+    if [[ "$psel" == "0" ]]; then
+        sed -i "/^${a}=/d" "$map" 2>/dev/null
+        echo -e "${G}[OK] ${B}$a${W} → default (global backend)${W}"
+    elif [[ "$psel" =~ ^[0-9]+$ ]]; then
+        local profiles=() n=0
+        for pf in "$CONFIG_DIR"/providers/*.conf; do
+            [[ -e "$pf" ]] || continue
+            profiles[n]="$pf"
+            n=$(( n + 1 ))
+        done
+        if [[ "$psel" -ge 1 ]] && [[ "$psel" -le $n ]]; then
+            mkdir -p "$CONFIG_DIR"
+            sed -i "/^${a}=/d" "$map" 2>/dev/null
+            echo "${a}=$(basename "${profiles[$(( psel - 1 ))]}" .conf)" >> "$map"
+            echo -e "${G}[OK] ${B}$a${W} → ${G}$(basename "${profiles[$(( psel - 1 ))]}" .conf)${W}"
+        else
+            echo -e "${R}Invalid selection.${W}"
+        fi
+    else
+        echo -e "${R}Invalid selection.${W}"
+    fi
+}
+
+# Team mode: the plan agent thinks first, then build executes with that
+# plan. During execution build can delegate (HANDOFF) to specialists and
+# the whole team fails over to whoever's backend still works.
+team_task() {
+    local task="$1" plan
+    echo -e "${P}${BOLD}[1/2] Plan agent making the plan (read-only)...${W}"
+    ( plan=$(ai_query "plan" "$(agent_prompt plan)" "$task" | clean_response); echo "$plan" > .ghost_resp ) &
+    loading_anim $!
+    plan=$(clean_response < .ghost_resp)
+    rm -f .ghost_resp
+    if [[ -z "$plan" || "$plan" == __API_ERROR__:* || "$plan" == __NO_BACKEND__ ]]; then
+        echo -e "${Y}[*] Plan agent unavailable (${plan#__API_ERROR__: }). Executing without a plan.${W}"
+        plan=""
+    else
+        echo -e "${G}${plan}${W}"
+        echo
+    fi
+    echo -e "${P}${BOLD}[2/2] Build agent executing with the plan...${W}"
+    if [[ -n "$plan" ]]; then
+        handle_task "build" "Task: $task
+
+PLAN FROM PLAN AGENT:
+$plan
+
+Execute this plan on Termux. You may delegate sub-tasks (recon, research, planning) to the specialist agents (explore, scout, general, plan) via HANDOFF whenever a teammate would help you finish the task."
+    else
+        handle_task "build" "$task"
+    fi
 }
 
 # =========================
@@ -528,16 +1050,17 @@ list_agents
 
 if oc_alive; then
     oc_new_session
-    echo -e "${G}✓ Connected to opencode server: ${C}$OC_URL${W}"
+    echo -e "${G}[OK] Connected to opencode server: ${C}$OC_URL${W}"
 elif [[ -n "$AI_API" ]]; then
-    echo -e "${G}✓ Standalone provider: ${C}${GHOST_PROVIDER:-openai}${W} @ ${C}$AI_API${W}"
+    echo -e "${G}[OK] Standalone provider: ${C}${GHOST_PROVIDER:-openai}${W} @ ${C}$AI_API${W}"
     [[ -n "$MODEL" ]] && echo -e "${DIM}   model: $MODEL${W}"
 else
     echo -e "${Y}[!] No backend yet. Set one up now (works with NO opencode installed):${W}"
     setup_config
 fi
 
-echo -e "${G}Ghost ready.${W}  ${DIM}agent: ${B}${ACTIVE_AGENT}${W} (${Y}TAB${W} to switch) · ${Y}/help${W}"
+echo -e "${G}Ghost is listening...${W}"
+echo -e "${DIM}Agent: $ACTIVE_AGENT (TAB to switch) | /help${W}"
 echo
 
 SESSION_TITLE="ghost-session"
@@ -547,9 +1070,9 @@ FIRST_TASK=1
 # MAIN LOOP
 # =========================
 while true; do
-    echo -en "${C}${BOLD}ghost(${B}${ACTIVE_AGENT}${W}${C}@${B}${DEVICE_NAME}${C})❯ ${W}"
+    echo -en "${R}${BOLD}┌──(${C}${ACTIVE_AGENT}${R}@${C}${DEVICE_NAME}${R})─[${Y}~${R}]\n└─${C}$ ${W}"
     if ! read -r USER_INPUT; then
-        echo -e "${R}👻 EOF — Ghost signing out...${W}"
+        echo -e "${R}EOF — Ghost signing out...${W}"
         break
     fi
 
@@ -570,11 +1093,36 @@ while true; do
     case "${USER_INPUT,,}" in
         exit|quit)
             summary_agent
-            echo -e "${R}👻 Ghost signing out...${W}"
+            echo -e "${R}Ghost signing out...${W}"
             exit 0 ;;
         /help)  show_help ; continue ;;
         /clear) draw_header ; list_agents ; continue ;;
         /agents) list_agents ; continue ;;
+        /team*)
+            TEAM_TASK=$(echo "$USER_INPUT" | sed 's/^[[:space:]]*\/team[[:space:]]*//')
+            if [[ -n "$TEAM_TASK" ]]; then
+                team_task "$TEAM_TASK"
+            else
+                echo -e "${R}Usage: /team <task>${W}"
+            fi
+            continue ;;
+        /assign)
+            assign_agents
+            continue ;;
+        /profiles)
+            echo -e "${Y}── Saved providers ──${W}"
+            pf=""
+            if compgen -G "$CONFIG_DIR/providers/*.conf" >/dev/null 2>&1; then
+                for pf in "$CONFIG_DIR"/providers/*.conf; do
+                    [[ -e "$pf" ]] || continue
+                    echo -e "  ${G}$(basename "$pf" .conf)${W}  (${C}$(grep -E '^MODEL=' "$pf" | cut -d= -f2 | tr -d '"')${W} @ ${C}$(grep -E '^AI_API=' "$pf" | cut -d= -f2 | tr -d '"')${W})"
+                done
+            else
+                echo -e "  ${DIM}none — save providers with /config${W}"
+            fi
+            echo -e "${Y}── Agent assignments ──${W}"
+            show_assignments
+            continue ;;
         /config)
             setup_config
             set -a; source "$CONFIG_FILE"; set +a
@@ -587,11 +1135,18 @@ while true; do
                 echo -e "Backend      : ${G}opencode server${W} @ ${C}$OC_URL${W}"
             elif [[ -n "$AI_API" ]]; then
                 echo -e "Backend      : ${C}${GHOST_PROVIDER:-openai}${W} @ ${C}$AI_API${W} (${MODEL:-no model})"
+                if [[ -n "$API_KEY" ]]; then
+                    echo -e "Key          : ${C}${API_KEY:0:8}...${W} (${#API_KEY} chars)"
+                else
+                    echo -e "Key          : ${R}not set${W}"
+                fi
             else
                 echo -e "Backend      : ${R}none — run /config${W}"
             fi
             echo -e "Session      : ${C}${OC_SESSION:-none}${W}"
             echo -e "Memory file  : ${C}${MEMORY_FILE}${W}"
+            echo -e "${Y}── Agent assignments (${DIM}/assign to change${Y}) ──${W}"
+            show_assignments
             continue ;;
         /agent*)
             AGENT_NAME=$(echo "$USER_INPUT" | awk '{print $2}')

@@ -5,7 +5,7 @@
 <h1 align="center">👻 Ghost - opencode-style Multi-Agent Termux Assistant</h1>
 
 <p align="center">
-  <b>Pure Bash</b> · <b>opencode agents</b> · <b>Termux</b> · <b>Ethical hacking</b>
+  <b>Pure Bash</b> · <b>Agent team</b> · <b>Termux</b> · <b>Ethical hacking</b>
 </p>
 
 ---
@@ -15,14 +15,30 @@
 Ghost was rebuilt to work **like opencode**: a multi-agent assistant for Termux.
 
 - **PURE BASH** — only needs `bash`, `curl` or `wget`, and `jq`. No Python, no Node.
-- **Real opencode agents** — the backend is a running `opencode serve` server, and Ghost
-  maps 1:1 to the same agents opencode uses:
+- **Real agents** — backed by a running `opencode serve` server (maps 1:1 to opencode's
+  agents) or by any standalone OpenAI-compatible provider. The agent team:
   - `build` *(primary)* — full access: install / configure / run
   - `plan` *(primary, read-only)* — numbered plans, never executes
   - `general` *(subagent)* — multi-step tasks
   - `explore` *(subagent, read-only)* — recon / exploration
-  - `scout` — research (CVEs, exploit-db, docs) via `general`
+  - `scout` — research (CVEs, exploit-db, docs)
   - hidden `title` / `summary` / `compaction` agents run automatically
+- **🤝 Team collaboration (on by default)** — agents help each other instead of giving
+  duplicate answers:
+  - **Handoff** — any agent can reply `HANDOFF: <agent> <sub-task>` to delegate part of
+    the job to a teammate (explore for recon, scout for research, plan for strategy).
+    The teammate's result is fed back so the agent can continue.
+  - **Auto-failover** — if an agent's backend is down or errors, the next working
+    backend takes over automatically (`[failover: … → … took over]`). Works with a
+    single provider, and even better with several.
+  - **`/team <task>`** — plan agent makes the plan first, then build executes it with
+    the plan in hand.
+- **Multiple providers** — connect several backends and run a full agent team over
+  them: `/config` saves each provider as a profile (`~/.config/ghost/providers/`),
+  `/assign` maps any agent to any profile, `/profiles` lists everything. No `/assign`
+  needed — failover uses every saved profile automatically.
+- **Ollama** — choice `7` in `/config` auto-installs Ollama in Termux, starts the
+  server, and offers to pull a phone-sized model (`llama3.2:1b`).
 - **Agent routing** — tasks are auto-routed to the best agent. Force one with `@agent`.
 - **TAB** switches primary agent (build ↔ plan), like opencode's Tab.
 - **Works without opencode too** — falls back to any OpenAI-compatible provider
@@ -41,8 +57,26 @@ ghost
                       OpenAI / Anthropic / DeepSeek / Ollama (no key) / custom
 ```
 
-Paste your key once — it's saved to `~/.config/ghost/config` (chmod 600).
-Free tiers: **Gemini, Groq, OpenRouter** all give free keys in minutes.
+Paste your key once — it's saved to `~/.config/ghost/config` (chmod 600), and a copy
+is saved as a **profile** in `~/.config/ghost/providers/` so you can switch or use it
+as a teammate later. Free tiers: **Gemini, Groq, OpenRouter** all give free keys in
+minutes.
+
+### 🤝 Multi-provider team
+
+Connect several providers and Ghost becomes a real team — every saved profile is a
+standby backend and agents fail over to each other automatically:
+
+```
+/config        → add each provider (Gemini, Groq, OpenRouter, Ollama, …)
+/assign        → pin an agent to a profile (e.g. explore → Ollama, local & free)
+/profiles      → list saved providers + assignments
+/team <task>   → plan first, then build with the plan; agents delegate to each other
+/status        → shows the active backend + team assignments
+```
+
+No `/assign` required: failover automatically tries the agent's own backend, then
+every saved profile, then the global backend.
 
 ### Optionally: use a desktop running opencode
 
@@ -83,12 +117,20 @@ what is my ip                     → routed automatically
 @explore list what is installed   → force the explore agent
 @plan how should i scan a network → force the plan agent (read-only)
 @scout searchsploit apache 2.4    → research + commands
+/team set up a full port scan     → plan agent plans, build executes, teammates help
 TAB                               → switch build ↔ plan
-/agents  /agent <name>  /config  /status  /help  /clear  exit
+/agents  /agent <name>  /config  /assign  /profiles  /status  /help  /clear  exit
 ```
 
 Ghost shows every command and asks **y/n before executing**. If a command fails,
-the general agent proposes a fix.
+the review agent reads the real output and proposes a fix. Agents ask numbered
+questions when they need info, and delegate sub-tasks to each other via handoff.
+
+### Update
+
+```bash
+ghost -> type: update     # fetches the latest version and restarts
+```
 
 ---
 
